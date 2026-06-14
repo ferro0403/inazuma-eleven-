@@ -75,8 +75,63 @@ class ExtractPlayersTests(unittest.TestCase):
             output = Path(directory) / "players.js"
             extract_players.write_players(players, output, extract_players.SOURCE_URL)
             text = output.read_text(encoding="utf-8")
+            loaded = extract_players.load_players(output)
         self.assertIn("globalThis.INAZUMA_PLAYERS = [", text)
         self.assertIn('"name": "Mark Evans"', text)
+        self.assertEqual(loaded, players)
+
+    def test_merge_preserves_players_and_updates_only_with_information(self):
+        existing = [
+            {
+                "id": 1,
+                "name": "Old Name",
+                "nickname": "Existing nickname",
+                "game": "Inazuma Eleven",
+                "gender": "Male",
+                "element": "Mountain",
+                "position": "GK",
+                "characterRole": "Player",
+                "ageGroup": "Middle School",
+                "schoolYear": "Second Year",
+                "teams": ["Raimon"],
+                "description": "Existing description",
+                "imageUrl": "https://example.test/old.png",
+            },
+            {"id": 999, "name": "Existing Only", "teams": ["Legacy Team"]},
+        ]
+        extracted = [{
+            "id": 1,
+            "name": "Mark Evans",
+            "nickname": "",
+            "game": "Inazuma Eleven",
+            "gender": "Male",
+            "element": "Mountain",
+            "position": "GK",
+            "characterRole": "Player",
+            "ageGroup": "Middle School",
+            "schoolYear": "",
+            "teams": ["Raimon", "Inazuma National"],
+            "description": "New official description",
+            "imageUrl": "https://zukan.inazuma.jp/portraits/1.png",
+        }]
+
+        merged, duplicates = extract_players.merge_players(existing, extracted)
+
+        self.assertEqual(duplicates, 1)
+        self.assertEqual([player["id"] for player in merged], [1, 999])
+        self.assertEqual(merged[0]["name"], "Mark Evans")
+        self.assertEqual(merged[0]["nickname"], "Existing nickname")
+        self.assertEqual(merged[0]["schoolYear"], "Second Year")
+        self.assertEqual(merged[0]["teams"], ["Raimon", "Inazuma National"])
+        self.assertEqual(merged[1]["name"], "Existing Only")
+
+    def test_repeated_extractions_continuously_grow_the_output(self):
+        first = [{"id": 1, "name": "Mark Evans", "teams": ["Raimon"]}]
+        second = [{"id": 2, "name": "Nathan Swift", "teams": ["Raimon"]}]
+        merged, duplicates = extract_players.merge_players([], first)
+        merged, second_duplicates = extract_players.merge_players(merged, second)
+        self.assertEqual(duplicates + second_duplicates, 0)
+        self.assertEqual([player["id"] for player in merged], [1, 2])
 
     def test_zero_players_does_not_replace_output(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -84,7 +139,11 @@ class ExtractPlayersTests(unittest.TestCase):
             html = directory / "empty.html"
             output = directory / "players.js"
             html.write_text("<html><body>No matching players</body></html>", encoding="utf-8")
-            output.write_text("existing sample", encoding="utf-8")
+            output.write_text(
+                'globalThis.INAZUMA_PLAYERS = [{"id": 7, "name": "Existing"}];\n',
+                encoding="utf-8",
+            )
+            original = output.read_text(encoding="utf-8")
             argv = [
                 "extract_players.py",
                 "--url",
@@ -97,7 +156,7 @@ class ExtractPlayersTests(unittest.TestCase):
             with patch.object(sys, "argv", argv), redirect_stdout(io.StringIO()):
                 with self.assertRaisesRegex(RuntimeError, "Zero players"):
                     extract_players.main()
-            self.assertEqual(output.read_text(encoding="utf-8"), "existing sample")
+            self.assertEqual(output.read_text(encoding="utf-8"), original)
 
 
 if __name__ == "__main__":

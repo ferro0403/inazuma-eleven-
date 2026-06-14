@@ -3,7 +3,7 @@
 This project contains:
 
 - a local Chromium-based extractor for **all pages** of the English [Inazuma Eleven Player Codex](https://zukan.inazuma.jp/en/chara_list/);
-- `data/players.js`, which the extractor replaces automatically with the complete dataset;
+- `data/players.js`, which the extractor expands automatically across repeated runs;
 - a static browser with player portraits, name search, and team, position, and element filters.
 
 The repository includes three sample records so the browser works immediately after download. Portraits are displayed directly from each record's `imageUrl`; image files are never downloaded into this project.
@@ -67,7 +67,10 @@ The script will:
 3. process every page in order;
 4. extract `id`, `name`, `nickname`, `game`, `gender`, `element`, `position`, `characterRole`, `ageGroup`, `schoolYear`, `teams`, `description`, and `imageUrl`;
 5. verify that every player has a portrait URL taken from that player's own result row;
-6. atomically replace `data\players.js` with the complete dataset only after extraction succeeds.
+6. load the existing `data\players.js` dataset and merge records by player ID;
+7. retain every existing player, union team memberships, and update fields only
+   when the extracted record contains a non-empty value;
+8. atomically save the growing merged dataset only after extraction succeeds.
 
 The terminal prints progress similar to:
 
@@ -75,6 +78,10 @@ The terminal prints progress similar to:
 Page 1/110: 50 records (50 unique)
 Page 2/110: 50 records (100 unique)
 ...
+Existing players count: 3
+Newly extracted players count: 5457
+Duplicate players skipped: 3
+Final total players count: 5457
 Complete: wrote 5457 players to data\players.js
 ```
 
@@ -107,11 +114,17 @@ Filtered URLs can be very long. Keep the complete URL inside double quotes so
 PowerShell does not interpret `&` or other query-string characters. The
 extractor opens that exact URL first, preserves all active filter parameters
 while changing pages, discovers pagination from the filtered results, and
-writes only the matching players to `data\players.js`.
+merges the matching players into `data\players.js`.
 
-The start URL and final extracted count are printed in the terminal. If the
-filtered URL produces zero players, the command exits with an error and leaves
-the existing `data\players.js` unchanged.
+The database is cumulative: run the extractor with several different filtered
+URLs and players from earlier runs remain available. Player IDs are the unique
+keys. A repeated player updates populated fields from the latest extraction,
+blank values never erase existing information, and team lists are combined
+without duplicates.
+
+The existing count, extracted count, duplicate count, and final total are
+printed in the terminal. If the filtered URL produces zero players, the command
+exits with an error and leaves the existing `data\players.js` unchanged.
 
 ### 6. Open the player browser
 

@@ -381,6 +381,105 @@ def page_number(url: str) -> int:
     return int(value) if value.isdigit() else 1
 
 
+def load_players(path: Path) -> list[dict[str, object]]:
+    """Load the JSON array assigned in an existing players.js file."""
+    if not path.exists():
+        return []
+
+    content = path.read_text(encoding="utf-8")
+    assignment = re.search(r"globalThis\.INAZUMA_PLAYERS\s*=\s*", content)
+    if not assignment:
+        raise RuntimeError(
+            f"{path} exists but does not assign globalThis.INAZUMA_PLAYERS; "
+            "the file was not changed."
+        )
+    try:
+        players, end = json.JSONDecoder().raw_decode(content[assignment.end():])
+    except json.JSONDecodeError as error:
+        raise RuntimeError(
+            f"{path} contains invalid player data; the file was not changed."
+        ) from error
+    if content[assignment.end() + end:].strip().rstrip(";").strip():
+        raise RuntimeError(
+            f"{path} contains unexpected content after the player array; "
+            "the file was not changed."
+        )
+    if not isinstance(players, list):
+        raise RuntimeError(f"{path} does not contain a player array; the file was not changed.")
+
+    unique: dict[int, dict[str, object]] = {}
+    for index, player in enumerate(players):
+        if not isinstance(player, dict):
+            raise RuntimeError(
+                f"{path} player entry {index + 1} is not an object; the file was not changed."
+            )
+        try:
+            identifier = int(player["id"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise RuntimeError(
+                f"{path} player entry {index + 1} has no valid id; the file was not changed."
+            ) from error
+        normalized = dict(player)
+        normalized["id"] = identifier
+        if identifier in unique:
+            unique[identifier] = merge_player(unique[identifier], normalized)
+        else:
+            unique[identifier] = normalized
+    return [unique[key] for key in sorted(unique)]
+
+
+def has_information(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return clean_text(value) not in {"", "-", "—"}
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
+def merge_player(
+    existing: dict[str, object],
+    extracted: dict[str, object],
+) -> dict[str, object]:
+    """Merge a player without allowing blank extracted fields to erase data."""
+    merged = dict(existing)
+    merged["id"] = int(extracted.get("id", existing["id"]))
+    for field, value in extracted.items():
+        if field == "id":
+            continue
+        if field == "teams":
+            old_teams = existing.get("teams", [])
+            old_values = old_teams if isinstance(old_teams, list) else [old_teams]
+            new_values = value if isinstance(value, list) else [value]
+            teams: list[str] = []
+            for team in [*old_values, *new_values]:
+                normalized = clean_text(str(team)) if team is not None else ""
+                if has_information(normalized) and normalized not in teams:
+                    teams.append(normalized)
+            merged["teams"] = teams
+        elif has_information(value):
+            merged[field] = value
+    return merged
+
+
+def merge_players(
+    existing: list[dict[str, object]],
+    extracted: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], int]:
+    """Merge datasets by player ID and return the result and duplicate count."""
+    merged = {int(player["id"]): dict(player) for player in existing}
+    duplicate_count = 0
+    for player in extracted:
+        identifier = int(player["id"])
+        if identifier in merged:
+            duplicate_count += 1
+            merged[identifier] = merge_player(merged[identifier], player)
+        else:
+            merged[identifier] = dict(player)
+    return [merged[key] for key in sorted(merged)], duplicate_count
+
+
 def write_players(players: list[dict[str, object]], output: Path, source_url: str) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(players, ensure_ascii=False, indent=2)
@@ -418,21 +517,32 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     start_url = args.legacy_source or args.url
+    existing_players = load_players(args.output)
+    print(f"Existing players count: {len(existing_players)}")
     if args.html:
         print(f"Start URL: {start_url}")
-        players = extract_records(args.html.read_text(encoding="utf-8"), start_url)
-        if not players:
+        extracted_players = extract_records(args.html.read_text(encoding="utf-8"), start_url)
+        if not extracted_players:
+            print("Newly extracted players count: 0")
+            print("Duplicate players skipped: 0")
+            print(f"Final total players count: {len(existing_players)}")
             raise RuntimeError(
                 f"Zero players were found in {args.html}; data/players.js was not changed."
             )
-        if any(not player["imageUrl"] for player in players):
+        if any(not player["imageUrl"] for player in extracted_players):
             raise RuntimeError("At least one fixture record has no same-row portrait URL")
     else:
-        players = scrape(start_url, args.timeout, args.delay, args.headed, args.profile)
-    if not players:
+        extracted_players = scrape(start_url, args.timeout, args.delay, args.headed, args.profile)
+    if not extracted_players:
+        print("Newly extracted players count: 0")
+        print("Duplicate players skipped: 0")
+        print(f"Final total players count: {len(existing_players)}")
         raise RuntimeError("Zero players were found; data/players.js was not changed.")
+    players, duplicate_count = merge_players(existing_players, extracted_players)
     write_players(players, args.output, start_url)
-    print(f"Final extracted count: {len(players)}")
+    print(f"Newly extracted players count: {len(extracted_players)}")
+    print(f"Duplicate players skipped: {duplicate_count}")
+    print(f"Final total players count: {len(players)}")
     print(f"Complete: wrote {len(players)} players to {args.output}")
     return 0
 
