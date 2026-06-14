@@ -4,7 +4,8 @@ This project contains:
 
 - a local Chromium-based extractor for **all pages** of the English [Inazuma Eleven Player Codex](https://zukan.inazuma.jp/en/chara_list/);
 - `data/players.js`, which the extractor expands automatically across repeated runs;
-- a static browser with player portraits, name search, and team, position, and element filters.
+- `data/teams.js`, the generated team seed loaded by the browser;
+- a static browser with player portraits, filters, and a persistent Team Manager.
 
 The repository includes three sample records so the browser works immediately after download. Portraits are displayed directly from each record's `imageUrl`; image files are never downloaded into this project.
 
@@ -144,6 +145,53 @@ The page displays each portrait directly from `imageUrl` and provides:
 - element filter;
 - client-side result pagination.
 
+## Team Manager
+
+Open **Team Manager** from the navigation bar. Teams missing from
+`data/teams.js` are generated automatically from the memberships in
+`data/players.js`. Team aliases are resolved to their canonical team, so an
+alias such as `Raimon GO` can be treated as `Raimon`.
+
+The Team Manager supports:
+
+- creating and renaming custom teams;
+- setting a remote logo URL (logos are displayed directly and are not downloaded);
+- editing aliases and notes;
+- adding and removing players;
+- moving a player to another team;
+- selecting and merging multiple teams;
+- deleting custom teams;
+- exporting the current effective records as a new `teams.js` file.
+
+Each public team record uses this format:
+
+```javascript
+{
+  id: "raimon",
+  name: "Raimon",
+  logoUrl: "https://example.com/raimon.png",
+  aliases: ["Raimon GO", "Raimon Junior High"],
+  playerIds: [1, 2, 3],
+  notes: ""
+}
+```
+
+### Persistence and priority
+
+`data/teams.js` is the checked-in/generated seed. Because a static browser
+cannot directly rewrite files on your computer, manual edits are saved
+persistently in the browser's localStorage. Those saved edits take priority
+over automatic player-derived memberships on every page load. Removed players
+stay removed, manually added players stay assigned, and new memberships from a
+later `players.js` are still discovered.
+
+Use **Export teams.js** in the Team Manager to download the current effective
+team database when you want to replace the repository's `data/teams.js`.
+
+Before a confirmed merge or custom-team deletion, the app stores an automatic
+snapshot in localStorage. Up to 20 backups are retained under
+`inazuma-team-manager-backups-v1`.
+
 ## Useful extractor options
 
 ```powershell
@@ -202,4 +250,6 @@ To verify JavaScript syntax when Node.js is installed:
 ```powershell
 node --check app.js
 node --check data\players.js
+node --check data\teams.js
+node tests\test_team_store.js
 ```

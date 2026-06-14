@@ -3,72 +3,79 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Browse and filter the Inazuma Eleven Player Codex.">
+  <meta name="description" content="Browse players and manage teams in the Inazuma Eleven Player Codex.">
   <title>Inazuma Eleven Player Codex</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <nav class="topbar">
+    <div class="shell topbar__inner">
+      <strong>IE Codex</strong>
+      <div class="view-tabs" role="tablist" aria-label="Application pages">
+        <button class="view-tab is-active" data-view="players" type="button">Players</button>
+        <button class="view-tab" data-view="teams" type="button">Team Manager</button>
+      </div>
+    </div>
+  </nav>
   <header class="hero">
     <div class="hero__glow" aria-hidden="true"></div>
     <div class="shell hero__content">
       <p class="eyebrow">Player database</p>
       <h1>Build your <span>dream eleven.</span></h1>
-      <p class="hero__copy">Search every era, every team, and every element in the Inazuma Eleven Player Codex.</p>
-      <div class="hero__stats" aria-live="polite">
-        <strong id="total-count">0</strong>
-        <span>players in the codex</span>
-      </div>
+      <p class="hero__copy">Search every era, then organize aliases, logos, and lineups in the Team Manager.</p>
+      <div class="hero__stats" aria-live="polite"><strong id="total-count">0</strong><span>players in the codex</span></div>
     </div>
   </header>
 
   <main class="shell">
-    <section class="filters" aria-label="Player filters">
-      <label class="search-field">
-        <span>Search by name</span>
-        <span class="search-field__control">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"/></svg>
-          <input id="search" type="search" placeholder="e.g. Mark Evans" autocomplete="off">
-        </span>
-      </label>
-      <label>
-        <span>Team</span>
-        <select id="team-filter"><option value="">All teams</option></select>
-      </label>
-      <label>
-        <span>Position</span>
-        <select id="position-filter"><option value="">All positions</option></select>
-      </label>
-      <label>
-        <span>Element</span>
-        <select id="element-filter"><option value="">All elements</option></select>
-      </label>
-      <button id="reset-filters" class="reset" type="button">Reset filters</button>
+    <section id="players-view" class="app-view">
+      <section class="filters" aria-label="Player filters">
+        <label class="search-field"><span>Search by name</span><span class="search-field__control"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"/></svg><input id="search" type="search" placeholder="e.g. Mark Evans" autocomplete="off"></span></label>
+        <label><span>Team</span><select id="team-filter"><option value="">All teams</option></select></label>
+        <label><span>Position</span><select id="position-filter"><option value="">All positions</option></select></label>
+        <label><span>Element</span><select id="element-filter"><option value="">All elements</option></select></label>
+        <button id="reset-filters" class="reset" type="button">Reset filters</button>
+      </section>
+      <section class="results" aria-labelledby="results-title">
+        <div class="results__heading"><div><p class="eyebrow">Scouting report</p><h2 id="results-title">All players</h2></div><p id="result-count" class="result-count" aria-live="polite"></p></div>
+        <div id="player-grid" class="player-grid"></div>
+        <div id="empty-state" class="empty-state" hidden><span class="empty-state__ball" aria-hidden="true">⚽</span><h2>No players found</h2><p>Try another name or reset your filters.</p><button id="empty-reset" type="button">Show all players</button></div>
+        <nav id="pagination" class="pagination" aria-label="Results pages"></nav>
+      </section>
     </section>
 
-    <section class="results" aria-labelledby="results-title">
-      <div class="results__heading">
-        <div>
-          <p class="eyebrow">Scouting report</p>
-          <h2 id="results-title">All players</h2>
-        </div>
-        <p id="result-count" class="result-count" aria-live="polite"></p>
+    <section id="teams-view" class="app-view manager" hidden>
+      <div class="manager__heading">
+        <div><p class="eyebrow">Club administration</p><h2>Team Manager</h2><p>Automatic teams stay in sync with players.js. Your manual edits always take priority.</p></div>
+        <div class="manager__actions"><button id="export-teams" class="button button--quiet" type="button">Export teams.js</button><button id="create-team" class="button" type="button">Create team</button></div>
       </div>
-      <div id="player-grid" class="player-grid"></div>
-      <div id="empty-state" class="empty-state" hidden>
-        <span class="empty-state__ball" aria-hidden="true">⚽</span>
-        <h2>No players found</h2>
-        <p>Try another name or reset your filters.</p>
-        <button id="empty-reset" type="button">Show all players</button>
+      <div class="manager__tools">
+        <input id="team-search" type="search" placeholder="Search teams and aliases…">
+        <button id="merge-teams" class="button button--dark" type="button" disabled>Merge selected</button>
       </div>
-      <nav id="pagination" class="pagination" aria-label="Results pages"></nav>
+      <p id="team-count" class="result-count"></p>
+      <div id="team-grid" class="team-grid"></div>
     </section>
   </main>
 
-  <footer>
-    <div class="shell">Fan-made data browser. Character data and images belong to LEVEL5 Inc.</div>
-  </footer>
+  <dialog id="team-dialog" class="team-dialog">
+    <form id="team-form" method="dialog">
+      <header class="dialog-header"><div id="dialog-logo" class="team-logo team-logo--large"></div><div><p class="eyebrow">Team detail</p><h2 id="dialog-title">Team</h2></div><button class="dialog-close" value="cancel" aria-label="Close">×</button></header>
+      <input id="team-id" type="hidden">
+      <div class="form-grid">
+        <label><span>Team name</span><input id="team-name" required></label>
+        <label class="logo-field"><span>Logo URL</span><span class="inline-control"><input id="team-logo-url" type="url" placeholder="https://example.com/logo.png"><button id="set-logo" type="button">Set Logo URL</button></span></label>
+        <label class="form-wide"><span>Aliases (one per line)</span><textarea id="team-aliases" rows="3" placeholder="Raimon GO&#10;Raimon Junior High"></textarea></label>
+        <label class="form-wide"><span>Notes</span><textarea id="team-notes" rows="3"></textarea></label>
+      </div>
+      <section class="roster-editor"><div class="roster-editor__heading"><h3>Players</h3><span id="roster-count"></span></div><div class="roster-add"><select id="add-player"></select><button id="add-player-button" type="button">Add player</button></div><div id="roster-list" class="roster-list"></div></section>
+      <footer class="dialog-actions"><button id="delete-team" class="button button--danger" type="button">Delete custom team</button><span></span><button class="button button--quiet" value="cancel">Cancel</button><button id="save-team" class="button" value="default">Save changes</button></footer>
+    </form>
+  </dialog>
 
-  <script src="data/players.js"></script>
-  <script src="app.js"></script>
+  <dialog id="merge-dialog" class="confirm-dialog"><form method="dialog"><h2>Merge teams</h2><p id="merge-summary"></p><label><span>Keep as canonical team</span><select id="merge-target"></select></label><p class="warning">A backup will be created automatically. All players and aliases will move to the canonical team.</p><div class="dialog-actions"><button class="button button--quiet" value="cancel">Cancel</button><button id="confirm-merge" class="button button--danger" value="default">Confirm merge</button></div></form></dialog>
+
+  <footer><div class="shell">Fan-made data browser. Character data and images belong to LEVEL5 Inc.</div></footer>
+  <script src="data/players.js"></script><script src="data/teams.js"></script><script src="team-store.js"></script><script src="app.js"></script>
 </body>
 </html>
