@@ -4,28 +4,33 @@
   const players = Array.isArray(globalThis.INAZUMA_PLAYERS) ? globalThis.INAZUMA_PLAYERS : [];
   const seeds = Array.isArray(globalThis.INAZUMA_TEAMS) ? globalThis.INAZUMA_TEAMS : [];
   const Store = globalThis.InazumaTeamStore;
+  const Tournaments = globalThis.InazumaTournamentStore;
   const PAGE_SIZE = 48;
   const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
-  const state = { search: "", team: "", position: "", element: "", page: 1, teamSearch: "", selectedTeams: new Set(), editingTeam: null };
+  const state = { search: "", team: "", position: "", element: "", page: 1, teamSearch: "", selectedTeams: new Set(), editingTeam: null, editingTournament: null };
   const elementClass = { Fire: "fire", Forest: "forest", Wind: "wind", Mountain: "mountain" };
   const elementSymbol = { Fire: "◆", Forest: "✦", Wind: "➶", Mountain: "▲" };
   let teams = Store.hydrate(players, seeds, Store.load(localStorage));
+  let tournaments = Tournaments.load(localStorage);
 
   const $ = (selector) => document.querySelector(selector);
   const nodes = {
-    views: { players: $("#players-view"), teams: $("#teams-view") }, tabs: [...document.querySelectorAll(".view-tab")],
+    views: { players: $("#players-view"), teams: $("#teams-view"), tournaments: $("#tournaments-view") }, tabs: [...document.querySelectorAll(".view-tab")],
     search: $("#search"), team: $("#team-filter"), position: $("#position-filter"), element: $("#element-filter"), reset: $("#reset-filters"), emptyReset: $("#empty-reset"),
     grid: $("#player-grid"), empty: $("#empty-state"), pagination: $("#pagination"), count: $("#result-count"), total: $("#total-count"),
     teamGrid: $("#team-grid"), teamCount: $("#team-count"), teamSearch: $("#team-search"), createTeam: $("#create-team"), mergeTeams: $("#merge-teams"), exportTeams: $("#export-teams"),
     dialog: $("#team-dialog"), form: $("#team-form"), dialogTitle: $("#dialog-title"), dialogLogo: $("#dialog-logo"), teamId: $("#team-id"), teamName: $("#team-name"), logoUrl: $("#team-logo-url"), aliases: $("#team-aliases"), notes: $("#team-notes"), setLogo: $("#set-logo"), deleteTeam: $("#delete-team"),
     addPlayer: $("#add-player"), addPlayerButton: $("#add-player-button"), rosterList: $("#roster-list"), rosterCount: $("#roster-count"),
     mergeDialog: $("#merge-dialog"), mergeSummary: $("#merge-summary"), mergeTarget: $("#merge-target"), confirmMerge: $("#confirm-merge"),
+    tournamentGrid: $("#tournament-grid"), tournamentCount: $("#tournament-count"), createTournament: $("#create-tournament"), exportTournaments: $("#export-tournaments"),
+    tournamentDialog: $("#tournament-dialog"), tournamentForm: $("#tournament-form"), tournamentTitle: $("#tournament-title"), tournamentId: $("#tournament-id"), tournamentName: $("#tournament-name"), tournamentTeamSelect: $("#tournament-team-select"), addTournamentTeam: $("#add-tournament-team"), tournamentPanels: $("#tournament-team-panels"), tournamentErrors: $("#tournament-errors"), deleteTournament: $("#delete-tournament"),
   };
 
   const uniqueSorted = (values) => [...new Set(values.filter(Boolean))].sort(collator.compare);
   const playerById = new Map(players.map((player) => [Number(player.id), player]));
   const teamById = () => new Map(teams.map((team) => [team.id, team]));
   const persist = () => Store.save(localStorage, teams);
+  const persistTournaments = () => Tournaments.save(localStorage, tournaments);
   const teamPlayers = (team) => team.playerIds.map((id) => playerById.get(Number(id))).filter(Boolean).sort((a, b) => collator.compare(a.name, b.name));
   const teamsForPlayer = (playerId) => teams.filter((team) => team.playerIds.includes(Number(playerId)));
 
@@ -44,7 +49,7 @@
   function switchView(view) {
     Object.entries(nodes.views).forEach(([name, node]) => { node.hidden = name !== view; });
     nodes.tabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === view));
-    if (view === "teams") renderTeams(); else renderPlayers();
+    if (view === "teams") renderTeams(); else if (view === "tournaments") renderTournaments(); else renderPlayers();
   }
 
   function refreshTeamFilter() {
@@ -190,6 +195,115 @@
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([payload], { type: "text/javascript" })); link.download = "teams.js"; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 0);
   }
 
+  function download(filename, text) {
+    const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([text], { type: "text/javascript" })); link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 0);
+  }
+
+  function tournamentValidation(tournament) {
+    return Tournaments.validate(tournament, teams, players);
+  }
+
+  function renderTournaments() {
+    const fragment = document.createDocumentFragment();
+    tournaments.forEach((tournament) => {
+      const result = tournamentValidation(tournament);
+      const card = document.createElement("article"); card.className = `tournament-card ${result.valid ? "" : "tournament-card--invalid"}`;
+      const title = document.createElement("h3"); title.textContent = tournament.name;
+      const meta = document.createElement("p"); meta.textContent = `${tournament.teams.length} teams · ${result.valid ? "Ready to export" : `${result.errors.length} validation issue(s)`}`;
+      const teamLine = document.createElement("div"); teamLine.className = "tournament-card__teams";
+      tournament.teams.forEach((entry) => {
+        const team = teamById().get(entry.teamId);
+        const chip = document.createElement("span"); chip.className = "team-chip"; chip.append(logo(team || { name: entry.teamId }, "team-logo team-logo--tiny"), document.createTextNode(team?.name || entry.teamId)); teamLine.append(chip);
+      });
+      const actions = document.createElement("div"); actions.className = "card-actions";
+      const edit = document.createElement("button"); edit.type = "button"; edit.className = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => openTournament(tournament.id));
+      const copy = document.createElement("button"); copy.type = "button"; copy.className = "button button--quiet"; copy.textContent = "Duplicate"; copy.addEventListener("click", () => { tournaments.push(Tournaments.duplicate(tournament, tournaments)); persistTournaments(); renderTournaments(); });
+      const remove = document.createElement("button"); remove.type = "button"; remove.className = "button button--danger"; remove.textContent = "Delete"; remove.addEventListener("click", () => { if (window.confirm(`Delete “${tournament.name}”?`)) { tournaments = tournaments.filter((item) => item.id !== tournament.id); persistTournaments(); renderTournaments(); } });
+      actions.append(edit, copy, remove); card.append(title, meta, teamLine, actions); fragment.append(card);
+    });
+    nodes.tournamentGrid.replaceChildren(fragment);
+    nodes.tournamentCount.textContent = `${tournaments.length} mini ${tournaments.length === 1 ? "tournament" : "tournaments"}`;
+  }
+
+  function renderTournamentTeamSelect() {
+    const used = new Set(state.editingTournament.teams.map((entry) => entry.teamId));
+    nodes.tournamentTeamSelect.replaceChildren(new Option("Choose participating team…", ""));
+    teams.filter((team) => !used.has(team.id)).forEach((team) => nodes.tournamentTeamSelect.add(new Option(team.name, team.id)));
+  }
+
+  function upsertEditingTournament() {
+    if (!state.editingTournament) return;
+    state.editingTournament.updatedAt = new Date().toISOString();
+    const normalized = Tournaments.normalizeTournament(state.editingTournament, tournaments.length + 1);
+    const existing = tournaments.findIndex((item) => item.id === normalized.id);
+    if (existing >= 0) tournaments[existing] = normalized;
+    else tournaments.push(normalized);
+    state.editingTournament = JSON.parse(JSON.stringify(normalized));
+    persistTournaments();
+    renderTournaments();
+  }
+
+  function tournamentTeamPanel(entry) {
+    const team = teamById().get(entry.teamId);
+    const panel = document.createElement("section"); panel.className = "tournament-team-panel";
+    const header = document.createElement("header"); header.append(logo(team, "team-logo team-logo--card"));
+    const title = document.createElement("div"); const name = document.createElement("h3"); name.textContent = team?.name || entry.teamId;
+    const count = document.createElement("p"); count.textContent = `${entry.playerIds.length}/6 players selected`; title.append(name, count);
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "button button--quiet"; remove.textContent = "Remove team"; remove.addEventListener("click", () => { state.editingTournament.teams = state.editingTournament.teams.filter((item) => item !== entry); upsertEditingTournament(); renderTournamentEditor(); });
+    header.append(title, remove); panel.append(header);
+    const list = document.createElement("div"); list.className = "tournament-player-list";
+    (team ? teamPlayers(team) : []).forEach((player) => {
+      const label = document.createElement("label"); label.className = "tournament-player";
+      const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = entry.playerIds.includes(Number(player.id));
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) entry.playerIds = [...new Set([...entry.playerIds, Number(player.id)])];
+        else entry.playerIds = entry.playerIds.filter((id) => id !== Number(player.id));
+        upsertEditingTournament();
+        renderTournamentEditor();
+      });
+      const img = document.createElement("img"); img.src = player.imageUrl; img.alt = ""; img.loading = "lazy";
+      const text = document.createElement("span"); text.innerHTML = `<strong></strong><small></small>`;
+      text.querySelector("strong").textContent = player.name; text.querySelector("small").textContent = `${player.position || "—"} · ${player.element || "Unknown"}`;
+      label.append(checkbox, img, text); list.append(label);
+    });
+    panel.append(list); return panel;
+  }
+
+  function renderTournamentEditor() {
+    if (!state.editingTournament) return;
+    nodes.tournamentName.value = state.editingTournament.name;
+    nodes.tournamentTitle.textContent = state.editingTournament.name;
+    renderTournamentTeamSelect();
+    const fragment = document.createDocumentFragment();
+    state.editingTournament.teams.forEach((entry) => fragment.append(tournamentTeamPanel(entry)));
+    nodes.tournamentPanels.replaceChildren(fragment);
+    const result = tournamentValidation(state.editingTournament);
+    nodes.tournamentErrors.replaceChildren(...result.errors.map((error) => Object.assign(document.createElement("p"), { textContent: error })));
+  }
+
+  function openTournament(id) {
+    const tournament = tournaments.find((item) => item.id === id); if (!tournament) return;
+    state.editingTournament = Tournaments.normalizeTournament(JSON.parse(JSON.stringify(tournament)));
+    nodes.tournamentId.value = tournament.id; nodes.deleteTournament.hidden = false; renderTournamentEditor(); nodes.tournamentDialog.showModal();
+  }
+
+  function createTournament() {
+    state.editingTournament = Tournaments.create(`Mini Tournament ${tournaments.length + 1}`, tournaments);
+    upsertEditingTournament();
+    nodes.tournamentId.value = state.editingTournament.id; nodes.deleteTournament.hidden = false; renderTournamentEditor(); nodes.tournamentDialog.showModal();
+  }
+
+  function saveTournament() {
+    if (!state.editingTournament || !nodes.tournamentName.value.trim()) return;
+    state.editingTournament.name = nodes.tournamentName.value.trim();
+    upsertEditingTournament();
+  }
+
+  function exportTournaments() {
+    try { download("mini-tournaments.js", Tournaments.exportText(tournaments, teams, players)); }
+    catch (error) { window.alert(`Cannot export mini tournaments until validation passes:\n\n${error.message}`); }
+  }
+
   nodes.tabs.forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
   uniqueSorted(players.map((player) => player.position)).forEach((value) => nodes.position.add(new Option(value, value)));
   uniqueSorted(players.map((player) => player.element)).forEach((value) => nodes.element.add(new Option(value, value)));
@@ -202,5 +316,10 @@
   nodes.setLogo.addEventListener("click", updateDialogLogo); nodes.logoUrl.addEventListener("change", updateDialogLogo); nodes.form.addEventListener("submit", (event) => { if (event.submitter?.value === "default") saveTeam(); }); nodes.deleteTeam.addEventListener("click", deleteTeam);
   nodes.addPlayerButton.addEventListener("click", () => { if (!nodes.addPlayer.value) return; Store.addPlayer(state.editingTeam, Number(nodes.addPlayer.value)); renderRoster(); });
   nodes.confirmMerge.addEventListener("click", confirmMerge);
-  renderPlayers(); renderTeams();
+  nodes.createTournament.addEventListener("click", createTournament); nodes.exportTournaments.addEventListener("click", exportTournaments);
+  nodes.addTournamentTeam.addEventListener("click", () => { if (!nodes.tournamentTeamSelect.value) return; state.editingTournament.teams.push({ teamId: nodes.tournamentTeamSelect.value, playerIds: [] }); upsertEditingTournament(); renderTournamentEditor(); });
+  nodes.tournamentForm.addEventListener("submit", (event) => { if (event.submitter?.value === "default") saveTournament(); });
+  nodes.tournamentName.addEventListener("input", () => { if (!state.editingTournament) return; state.editingTournament.name = nodes.tournamentName.value; nodes.tournamentTitle.textContent = nodes.tournamentName.value || "Mini Tournament"; if (nodes.tournamentName.value.trim()) upsertEditingTournament(); });
+  nodes.deleteTournament.addEventListener("click", () => { if (!state.editingTournament || !window.confirm(`Delete “${state.editingTournament.name}”?`)) return; tournaments = tournaments.filter((item) => item.id !== state.editingTournament.id); persistTournaments(); nodes.tournamentDialog.close(); renderTournaments(); });
+  renderPlayers(); renderTeams(); renderTournaments();
 })();

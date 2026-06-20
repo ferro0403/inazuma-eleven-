@@ -5,7 +5,7 @@ This project contains:
 - a local Chromium-based extractor for **all pages** of the English [Inazuma Eleven Player Codex](https://zukan.inazuma.jp/en/chara_list/);
 - `data/players.js`, which the extractor expands automatically across repeated runs;
 - `data/teams.js`, the generated team seed loaded by the browser;
-- a static browser with player portraits, filters, and a persistent Team Manager.
+- a static browser with player portraits, filters, a persistent Team Manager, and a Mini Tournament Builder.
 
 The repository includes three sample records so the browser works immediately after download. Portraits are displayed directly from each record's `imageUrl`; image files are never downloaded into this project.
 
@@ -192,6 +192,46 @@ Before a confirmed merge or custom-team deletion, the app stores an automatic
 snapshot in localStorage. Up to 20 backups are retained under
 `inazuma-team-manager-backups-v1`.
 
+## Mini Tournament Builder
+
+Open **Mini Tournaments** from the navigation bar. This module is separate from
+Team Manager and uses the effective `players.js` and `teams.js` data only to
+resolve names, portraits, positions, elements, and team logos in the editor.
+
+You can:
+
+- create, edit, delete, and duplicate mini tournaments;
+- set a tournament name;
+- choose participating teams;
+- select exactly 6 players for each participating team;
+- save drafts persistently in localStorage;
+- export a `mini-tournaments.js` file.
+
+The exported file intentionally stores references only. It does **not** include
+full player objects and does **not** include full team objects:
+
+```javascript
+const miniTournaments = [
+  {
+    id: "mini_tournament_1",
+    name: "Mini Tournament 1",
+    teams: [
+      {
+        teamId: "raimon",
+        playerIds: [1, 2, 3, 4, 5, 6]
+      }
+    ],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z"
+  }
+];
+```
+
+Export is blocked until every tournament is valid. Validation checks that there
+are no duplicate teams in one tournament, every selected team has exactly 6
+players, every player ID exists in `players.js`, and every selected player
+belongs to that selected team.
+
 ## Useful extractor options
 
 ```powershell
@@ -249,7 +289,9 @@ To verify JavaScript syntax when Node.js is installed:
 
 ```powershell
 node --check app.js
+node --check tournament-store.js
 node --check data\players.js
 node --check data\teams.js
 node tests\test_team_store.js
+node tests\test_tournament_store.js
 ```

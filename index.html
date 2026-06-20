@@ -14,6 +14,7 @@
       <div class="view-tabs" role="tablist" aria-label="Application pages">
         <button class="view-tab is-active" data-view="players" type="button">Players</button>
         <button class="view-tab" data-view="teams" type="button">Team Manager</button>
+        <button class="view-tab" data-view="tournaments" type="button">Mini Tournaments</button>
       </div>
     </div>
   </nav>
@@ -56,6 +57,15 @@
       <p id="team-count" class="result-count"></p>
       <div id="team-grid" class="team-grid"></div>
     </section>
+
+    <section id="tournaments-view" class="app-view manager" hidden>
+      <div class="manager__heading">
+        <div><p class="eyebrow">Six-a-side setup</p><h2>Mini Tournaments</h2><p>Create tournament files for another game using only teamId and playerIds references.</p></div>
+        <div class="manager__actions"><button id="export-tournaments" class="button button--quiet" type="button">Export mini-tournaments.js</button><button id="create-tournament" class="button" type="button">Create tournament</button></div>
+      </div>
+      <p id="tournament-count" class="result-count"></p>
+      <div id="tournament-grid" class="tournament-grid"></div>
+    </section>
   </main>
 
   <dialog id="team-dialog" class="team-dialog">
@@ -75,7 +85,21 @@
 
   <dialog id="merge-dialog" class="confirm-dialog"><form method="dialog"><h2>Merge teams</h2><p id="merge-summary"></p><label><span>Keep as canonical team</span><select id="merge-target"></select></label><p class="warning">A backup will be created automatically. All players and aliases will move to the canonical team.</p><div class="dialog-actions"><button class="button button--quiet" value="cancel">Cancel</button><button id="confirm-merge" class="button button--danger" value="default">Confirm merge</button></div></form></dialog>
 
+  <dialog id="tournament-dialog" class="tournament-dialog">
+    <form id="tournament-form" method="dialog">
+      <header class="dialog-header"><div><p class="eyebrow">Tournament detail</p><h2 id="tournament-title">Mini Tournament</h2></div><button class="dialog-close" value="cancel" aria-label="Close">×</button></header>
+      <input id="tournament-id" type="hidden">
+      <label class="single-field"><span>Tournament name</span><input id="tournament-name" required></label>
+      <section class="tournament-builder">
+        <div class="roster-add"><select id="tournament-team-select"></select><button id="add-tournament-team" type="button">Add team</button></div>
+        <div id="tournament-team-panels" class="tournament-team-panels"></div>
+      </section>
+      <div id="tournament-errors" class="validation-errors" aria-live="polite"></div>
+      <footer class="dialog-actions"><button id="delete-tournament" class="button button--danger" type="button">Delete</button><span></span><button class="button button--quiet" value="cancel">Cancel</button><button id="save-tournament" class="button" value="default">Save tournament</button></footer>
+    </form>
+  </dialog>
+
   <footer><div class="shell">Fan-made data browser. Character data and images belong to LEVEL5 Inc.</div></footer>
-  <script src="data/players.js"></script><script src="data/teams.js"></script><script src="team-store.js"></script><script src="app.js"></script>
+  <script src="data/players.js"></script><script src="data/teams.js"></script><script src="team-store.js"></script><script src="tournament-store.js"></script><script src="app.js"></script>
 </body>
 </html>
