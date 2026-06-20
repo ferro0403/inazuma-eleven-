@@ -91,8 +91,16 @@
       <input id="tournament-id" type="hidden">
       <label class="single-field"><span>Tournament name</span><input id="tournament-name" required></label>
       <section class="tournament-builder">
-        <div class="roster-add"><select id="tournament-team-select"></select><button id="add-tournament-team" type="button">Add team</button></div>
-        <div id="tournament-team-panels" class="tournament-team-panels"></div>
+        <div class="tournament-picker">
+          <h3>Team picker</h3>
+          <div class="roster-add"><select id="tournament-team-select"></select><button id="add-tournament-team" type="button" disabled>Add team to tournament</button></div>
+          <p id="tournament-picker-message" class="picker-message">Select 6 players to add this team</p>
+          <div id="tournament-player-picker" class="tournament-player-list"></div>
+        </div>
+        <div class="tournament-added">
+          <h3>Teams in this tournament</h3>
+          <div id="tournament-team-panels" class="tournament-team-panels"></div>
+        </div>
       </section>
       <div id="tournament-errors" class="validation-errors" aria-live="polite"></div>
       <footer class="dialog-actions"><button id="delete-tournament" class="button button--danger" type="button">Delete</button><span></span><button class="button button--quiet" value="cancel">Cancel</button><button id="save-tournament" class="button" value="default">Save tournament</button></footer>

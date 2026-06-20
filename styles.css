@@ -293,3 +293,10 @@ dialog::backdrop { background: rgba(3,20,37,.7); backdrop-filter: blur(3px); }
 .validation-errors p { margin: 0; padding: 8px 10px; border-left: 3px solid #c53c3c; color: #8f2929; background: #fff1f1; font-size: .74rem; }
 @media (max-width: 900px) { .tournament-grid { grid-template-columns: repeat(2, 1fr); } .tournament-player-list { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 650px) { .tournament-grid, .tournament-player-list { grid-template-columns: 1fr; } .tournament-dialog form { padding: 18px; } .tournament-team-panel header { align-items: start; flex-direction: column; } }
+.tournament-picker, .tournament-added { display: grid; gap: 12px; }
+.tournament-picker h3, .tournament-added h3 { margin: 0; font: 800 1.55rem/1 "Barlow Condensed"; text-transform: uppercase; }
+.picker-message { margin: 0; color: var(--muted); font-size: .74rem; font-weight: 800; }
+.picker-empty { grid-column: 1 / -1; margin: 0; padding: 18px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); background: #fbfcfd; text-align: center; }
+.selected-player-list { display: flex; flex-wrap: wrap; gap: 7px; padding: 14px; }
+.selected-player { display: inline-flex; max-width: 190px; align-items: center; gap: 7px; padding: 5px 9px 5px 5px; overflow: hidden; border: 1px solid var(--line); border-radius: 999px; background: #fff; font-size: .72rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.selected-player img { width: 28px; height: 28px; flex: 0 0 auto; border-radius: 50%; object-fit: contain; background: #e4edf4; }

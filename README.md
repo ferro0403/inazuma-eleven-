@@ -202,8 +202,10 @@ You can:
 
 - create, edit, delete, and duplicate mini tournaments;
 - set a tournament name;
-- choose participating teams;
-- select exactly 6 players for each participating team;
+- choose one available team in the picker;
+- select exactly 6 players from that team;
+- click **Add team to tournament** to move it into **Teams in this tournament**;
+- edit or remove teams already added to the tournament;
 - save drafts persistently in localStorage;
 - export a `mini-tournaments.js` file.
 
@@ -227,7 +229,7 @@ const miniTournaments = [
 ];
 ```
 
-Export is blocked until every tournament is valid. Validation checks that there
+When editing an added team, the picker reloads that team and its six players, and the confirmation button changes to **Save team changes**. Export is blocked until every tournament is valid. Validation checks that there
 are no duplicate teams in one tournament, every selected team has exactly 6
 players, every player ID exists in `players.js`, and every selected player
 belongs to that selected team.

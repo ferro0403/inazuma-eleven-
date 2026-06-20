@@ -7,7 +7,7 @@
   const Tournaments = globalThis.InazumaTournamentStore;
   const PAGE_SIZE = 48;
   const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
-  const state = { search: "", team: "", position: "", element: "", page: 1, teamSearch: "", selectedTeams: new Set(), editingTeam: null, editingTournament: null };
+  const state = { search: "", team: "", position: "", element: "", page: 1, teamSearch: "", selectedTeams: new Set(), editingTeam: null, editingTournament: null, tournamentDraft: { teamId: "", playerIds: [], editIndex: null } };
   const elementClass = { Fire: "fire", Forest: "forest", Wind: "wind", Mountain: "mountain" };
   const elementSymbol = { Fire: "◆", Forest: "✦", Wind: "➶", Mountain: "▲" };
   let teams = Store.hydrate(players, seeds, Store.load(localStorage));
@@ -23,7 +23,7 @@
     addPlayer: $("#add-player"), addPlayerButton: $("#add-player-button"), rosterList: $("#roster-list"), rosterCount: $("#roster-count"),
     mergeDialog: $("#merge-dialog"), mergeSummary: $("#merge-summary"), mergeTarget: $("#merge-target"), confirmMerge: $("#confirm-merge"),
     tournamentGrid: $("#tournament-grid"), tournamentCount: $("#tournament-count"), createTournament: $("#create-tournament"), exportTournaments: $("#export-tournaments"),
-    tournamentDialog: $("#tournament-dialog"), tournamentForm: $("#tournament-form"), tournamentTitle: $("#tournament-title"), tournamentId: $("#tournament-id"), tournamentName: $("#tournament-name"), tournamentTeamSelect: $("#tournament-team-select"), addTournamentTeam: $("#add-tournament-team"), tournamentPanels: $("#tournament-team-panels"), tournamentErrors: $("#tournament-errors"), deleteTournament: $("#delete-tournament"),
+    tournamentDialog: $("#tournament-dialog"), tournamentForm: $("#tournament-form"), tournamentTitle: $("#tournament-title"), tournamentId: $("#tournament-id"), tournamentName: $("#tournament-name"), tournamentTeamSelect: $("#tournament-team-select"), addTournamentTeam: $("#add-tournament-team"), tournamentPicker: $("#tournament-player-picker"), tournamentPickerMessage: $("#tournament-picker-message"), tournamentPanels: $("#tournament-team-panels"), tournamentErrors: $("#tournament-errors"), deleteTournament: $("#delete-tournament"),
   };
 
   const uniqueSorted = (values) => [...new Set(values.filter(Boolean))].sort(collator.compare);
@@ -226,9 +226,10 @@
   }
 
   function renderTournamentTeamSelect() {
-    const used = new Set(state.editingTournament.teams.map((entry) => entry.teamId));
+    const used = new Set(state.editingTournament.teams.map((entry, index) => index === state.tournamentDraft.editIndex ? "" : entry.teamId));
     nodes.tournamentTeamSelect.replaceChildren(new Option("Choose participating team…", ""));
     teams.filter((team) => !used.has(team.id)).forEach((team) => nodes.tournamentTeamSelect.add(new Option(team.name, team.id)));
+    nodes.tournamentTeamSelect.value = state.tournamentDraft.teamId;
   }
 
   function upsertEditingTournament() {
@@ -243,28 +244,59 @@
     renderTournaments();
   }
 
-  function tournamentTeamPanel(entry) {
+  function resetTournamentDraft() {
+    state.tournamentDraft = { teamId: "", playerIds: [], editIndex: null };
+  }
+
+  function updateTournamentConfirmState() {
+    const selected = state.tournamentDraft.playerIds.length;
+    const ready = Boolean(state.tournamentDraft.teamId) && selected === 6;
+    nodes.addTournamentTeam.disabled = !ready;
+    nodes.addTournamentTeam.textContent = state.tournamentDraft.editIndex === null ? "Add team to tournament" : "Save team changes";
+    nodes.tournamentPickerMessage.textContent = selected === 6 ? "6/6 players selected" : "Select 6 players to add this team";
+  }
+
+  function renderTournamentPicker() {
+    renderTournamentTeamSelect();
+    const team = teamById().get(state.tournamentDraft.teamId);
+    const fragment = document.createDocumentFragment();
+    if (team) teamPlayers(team).forEach((player) => {
+      const label = document.createElement("label"); label.className = "tournament-player";
+      const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = state.tournamentDraft.playerIds.includes(Number(player.id));
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) state.tournamentDraft.playerIds = [...new Set([...state.tournamentDraft.playerIds, Number(player.id)])];
+        else state.tournamentDraft.playerIds = state.tournamentDraft.playerIds.filter((id) => id !== Number(player.id));
+        renderTournamentPicker();
+      });
+      const img = document.createElement("img"); img.src = player.imageUrl; img.alt = ""; img.loading = "lazy";
+      const text = document.createElement("span"); text.innerHTML = `<strong></strong><small></small>`;
+      text.querySelector("strong").textContent = player.name; text.querySelector("small").textContent = `${player.position || "—"} · ${player.element || "Unknown"}`;
+      label.append(checkbox, img, text); fragment.append(label);
+    });
+    else {
+      const empty = document.createElement("p"); empty.className = "picker-empty"; empty.textContent = "Choose a team to load its players."; fragment.append(empty);
+    }
+    nodes.tournamentPicker.replaceChildren(fragment);
+    updateTournamentConfirmState();
+  }
+
+  function tournamentTeamPanel(entry, index) {
     const team = teamById().get(entry.teamId);
     const panel = document.createElement("section"); panel.className = "tournament-team-panel";
     const header = document.createElement("header"); header.append(logo(team, "team-logo team-logo--card"));
     const title = document.createElement("div"); const name = document.createElement("h3"); name.textContent = team?.name || entry.teamId;
     const count = document.createElement("p"); count.textContent = `${entry.playerIds.length}/6 players selected`; title.append(name, count);
-    const remove = document.createElement("button"); remove.type = "button"; remove.className = "button button--quiet"; remove.textContent = "Remove team"; remove.addEventListener("click", () => { state.editingTournament.teams = state.editingTournament.teams.filter((item) => item !== entry); upsertEditingTournament(); renderTournamentEditor(); });
-    header.append(title, remove); panel.append(header);
-    const list = document.createElement("div"); list.className = "tournament-player-list";
-    (team ? teamPlayers(team) : []).forEach((player) => {
-      const label = document.createElement("label"); label.className = "tournament-player";
-      const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = entry.playerIds.includes(Number(player.id));
-      checkbox.addEventListener("change", () => {
-        if (checkbox.checked) entry.playerIds = [...new Set([...entry.playerIds, Number(player.id)])];
-        else entry.playerIds = entry.playerIds.filter((id) => id !== Number(player.id));
-        upsertEditingTournament();
-        renderTournamentEditor();
-      });
+    const actions = document.createElement("div"); actions.className = "card-actions";
+    const edit = document.createElement("button"); edit.type = "button"; edit.className = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => { state.tournamentDraft = { teamId: entry.teamId, playerIds: [...entry.playerIds], editIndex: index }; renderTournamentEditor(); });
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "button button--quiet"; remove.textContent = "Remove"; remove.addEventListener("click", () => { state.editingTournament.teams.splice(index, 1); if (state.tournamentDraft.editIndex === index) resetTournamentDraft(); upsertEditingTournament(); renderTournamentEditor(); });
+    actions.append(edit, remove); header.append(title, actions); panel.append(header);
+    const list = document.createElement("div"); list.className = "selected-player-list";
+    entry.playerIds.forEach((playerId) => {
+      const player = playerById.get(Number(playerId));
+      const item = document.createElement("span"); item.className = "selected-player";
+      if (!player) { item.textContent = `Missing player ${playerId}`; list.append(item); return; }
       const img = document.createElement("img"); img.src = player.imageUrl; img.alt = ""; img.loading = "lazy";
-      const text = document.createElement("span"); text.innerHTML = `<strong></strong><small></small>`;
-      text.querySelector("strong").textContent = player.name; text.querySelector("small").textContent = `${player.position || "—"} · ${player.element || "Unknown"}`;
-      label.append(checkbox, img, text); list.append(label);
+      item.append(img, document.createTextNode(player.name)); list.append(item);
     });
     panel.append(list); return panel;
   }
@@ -273,9 +305,9 @@
     if (!state.editingTournament) return;
     nodes.tournamentName.value = state.editingTournament.name;
     nodes.tournamentTitle.textContent = state.editingTournament.name;
-    renderTournamentTeamSelect();
+    renderTournamentPicker();
     const fragment = document.createDocumentFragment();
-    state.editingTournament.teams.forEach((entry) => fragment.append(tournamentTeamPanel(entry)));
+    state.editingTournament.teams.forEach((entry, index) => fragment.append(tournamentTeamPanel(entry, index)));
     nodes.tournamentPanels.replaceChildren(fragment);
     const result = tournamentValidation(state.editingTournament);
     nodes.tournamentErrors.replaceChildren(...result.errors.map((error) => Object.assign(document.createElement("p"), { textContent: error })));
@@ -284,11 +316,13 @@
   function openTournament(id) {
     const tournament = tournaments.find((item) => item.id === id); if (!tournament) return;
     state.editingTournament = Tournaments.normalizeTournament(JSON.parse(JSON.stringify(tournament)));
+    resetTournamentDraft();
     nodes.tournamentId.value = tournament.id; nodes.deleteTournament.hidden = false; renderTournamentEditor(); nodes.tournamentDialog.showModal();
   }
 
   function createTournament() {
     state.editingTournament = Tournaments.create(`Mini Tournament ${tournaments.length + 1}`, tournaments);
+    resetTournamentDraft();
     upsertEditingTournament();
     nodes.tournamentId.value = state.editingTournament.id; nodes.deleteTournament.hidden = false; renderTournamentEditor(); nodes.tournamentDialog.showModal();
   }
@@ -304,6 +338,16 @@
     catch (error) { window.alert(`Cannot export mini tournaments until validation passes:\n\n${error.message}`); }
   }
 
+  function confirmTournamentTeam() {
+    if (!state.editingTournament || !state.tournamentDraft.teamId || state.tournamentDraft.playerIds.length !== 6) return;
+    const entry = { teamId: state.tournamentDraft.teamId, playerIds: [...state.tournamentDraft.playerIds] };
+    if (state.tournamentDraft.editIndex === null) state.editingTournament.teams.push(entry);
+    else state.editingTournament.teams[state.tournamentDraft.editIndex] = entry;
+    resetTournamentDraft();
+    upsertEditingTournament();
+    renderTournamentEditor();
+  }
+
   nodes.tabs.forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
   uniqueSorted(players.map((player) => player.position)).forEach((value) => nodes.position.add(new Option(value, value)));
   uniqueSorted(players.map((player) => player.element)).forEach((value) => nodes.element.add(new Option(value, value)));
@@ -317,7 +361,8 @@
   nodes.addPlayerButton.addEventListener("click", () => { if (!nodes.addPlayer.value) return; Store.addPlayer(state.editingTeam, Number(nodes.addPlayer.value)); renderRoster(); });
   nodes.confirmMerge.addEventListener("click", confirmMerge);
   nodes.createTournament.addEventListener("click", createTournament); nodes.exportTournaments.addEventListener("click", exportTournaments);
-  nodes.addTournamentTeam.addEventListener("click", () => { if (!nodes.tournamentTeamSelect.value) return; state.editingTournament.teams.push({ teamId: nodes.tournamentTeamSelect.value, playerIds: [] }); upsertEditingTournament(); renderTournamentEditor(); });
+  nodes.tournamentTeamSelect.addEventListener("change", () => { state.tournamentDraft = { teamId: nodes.tournamentTeamSelect.value, playerIds: [], editIndex: null }; renderTournamentEditor(); });
+  nodes.addTournamentTeam.addEventListener("click", confirmTournamentTeam);
   nodes.tournamentForm.addEventListener("submit", (event) => { if (event.submitter?.value === "default") saveTournament(); });
   nodes.tournamentName.addEventListener("input", () => { if (!state.editingTournament) return; state.editingTournament.name = nodes.tournamentName.value; nodes.tournamentTitle.textContent = nodes.tournamentName.value || "Mini Tournament"; if (nodes.tournamentName.value.trim()) upsertEditingTournament(); });
   nodes.deleteTournament.addEventListener("click", () => { if (!state.editingTournament || !window.confirm(`Delete “${state.editingTournament.name}”?`)) return; tournaments = tournaments.filter((item) => item.id !== state.editingTournament.id); persistTournaments(); nodes.tournamentDialog.close(); renderTournaments(); });
