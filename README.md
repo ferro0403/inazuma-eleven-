@@ -234,6 +234,48 @@ are no duplicate teams in one tournament, every selected team has exactly 6
 players, every player ID exists in `players.js`, and every selected player
 belongs to that selected team.
 
+## Full Team Championships
+
+Open **Full Team Championships** from the navigation bar. This is a separate
+module from Mini Tournaments with its own page, dialogs, JavaScript module,
+store, localStorage key, workflow, and export file.
+
+Use this builder when you want complete-team competitions:
+
+- create, edit, delete, and duplicate championships;
+- set the championship name;
+- select participating teams;
+- click **Add team** to add the full team roster automatically;
+- edit a roster only after a team has been added;
+- search inside that team roster while editing;
+- remove players, add players back from the same team, or reset to the full team;
+- export `full-team-championships.js`.
+
+The export is reference-only and is designed to be used with the same
+`data/players.js` and `data/teams.js` files:
+
+```javascript
+const fullTeamChampionships = [
+  {
+    id: "championship_1",
+    name: "Championship 1",
+    teams: [
+      {
+        teamId: "raimon",
+        playerIds: [1, 2, 3, 4, 5, 6, 7]
+      }
+    ],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z"
+  }
+];
+```
+
+Export is blocked if a championship is invalid. Validation checks for duplicate
+teams, missing teams, teams with no players, missing player IDs, and player IDs
+that are not part of the selected team roster unless they were manually added
+through the roster editor.
+
 ## Useful extractor options
 
 ```powershell
@@ -292,8 +334,11 @@ To verify JavaScript syntax when Node.js is installed:
 ```powershell
 node --check app.js
 node --check tournament-store.js
+node --check full-team-championship-store.js
+node --check full-team-championships.js
 node --check data\players.js
 node --check data\teams.js
 node tests\test_team_store.js
 node tests\test_tournament_store.js
+node tests\test_full_team_championship_store.js
 ```
