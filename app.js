@@ -23,7 +23,7 @@
     addPlayer: $("#add-player"), addPlayerButton: $("#add-player-button"), rosterList: $("#roster-list"), rosterCount: $("#roster-count"),
     mergeDialog: $("#merge-dialog"), mergeSummary: $("#merge-summary"), mergeTarget: $("#merge-target"), confirmMerge: $("#confirm-merge"),
     tournamentGrid: $("#tournament-grid"), tournamentCount: $("#tournament-count"), createTournament: $("#create-tournament"), exportTournaments: $("#export-tournaments"),
-    tournamentDialog: $("#tournament-dialog"), tournamentForm: $("#tournament-form"), tournamentTitle: $("#tournament-title"), tournamentId: $("#tournament-id"), tournamentName: $("#tournament-name"), tournamentTeamSelect: $("#tournament-team-select"), addTournamentTeam: $("#add-tournament-team"), tournamentPicker: $("#tournament-player-picker"), tournamentPickerMessage: $("#tournament-picker-message"), tournamentPanels: $("#tournament-team-panels"), tournamentErrors: $("#tournament-errors"), deleteTournament: $("#delete-tournament"),
+    tournamentDialog: $("#tournament-dialog"), tournamentForm: $("#tournament-form"), tournamentTitle: $("#tournament-title"), tournamentId: $("#tournament-id"), tournamentName: $("#tournament-name"), tournamentTeamSearch: $("#tournament-team-search"), tournamentTeamCards: $("#tournament-team-cards"), addTournamentTeam: $("#add-tournament-team"), tournamentPicker: $("#tournament-player-picker"), tournamentPickerMessage: $("#tournament-picker-message"), tournamentPanels: $("#tournament-team-panels"), tournamentErrors: $("#tournament-errors"), deleteTournament: $("#delete-tournament"),
   };
 
   const uniqueSorted = (values) => [...new Set(values.filter(Boolean))].sort(collator.compare);
@@ -228,11 +228,39 @@
     nodes.tournamentCount.textContent = `${tournaments.length} mini ${tournaments.length === 1 ? "tournament" : "tournaments"}`;
   }
 
-  function renderTournamentTeamSelect() {
+  function playerPill(player) {
+    const item = document.createElement("span"); item.className = "selected-player";
+    const img = document.createElement("img"); img.src = player.imageUrl; img.alt = ""; img.loading = "lazy";
+    item.append(img, document.createTextNode(player.name)); return item;
+  }
+
+  function rosterPanel(team) {
+    const panel = document.createElement("div"); panel.className = "selectable-team-roster";
+    teamPlayers(team).forEach((player) => panel.append(playerPill(player)));
+    if (!team.playerIds.length) panel.textContent = "No players assigned to this team yet.";
+    return panel;
+  }
+
+  function renderTournamentTeamCards() {
     const used = new Set(state.editingTournament.teams.map((entry, index) => index === state.tournamentDraft.editIndex ? "" : entry.teamId));
-    nodes.tournamentTeamSelect.replaceChildren(new Option("Choose participating team…", ""));
-    teams.filter((team) => !used.has(team.id)).forEach((team) => nodes.tournamentTeamSelect.add(new Option(team.name, team.id)));
-    nodes.tournamentTeamSelect.value = state.tournamentDraft.teamId;
+    const needle = nodes.tournamentTeamSearch.value.trim().toLocaleLowerCase();
+    const fragment = document.createDocumentFragment();
+    teams.filter((team) => !used.has(team.id) && (!needle || team.name.toLocaleLowerCase().includes(needle))).forEach((team) => {
+      const card = document.createElement("article"); card.className = "selectable-team-card"; card.tabIndex = 0; card.setAttribute("role", "button"); card.setAttribute("aria-label", `Select ${team.name} for mini tournament`);
+      if (state.tournamentDraft.teamId === team.id) card.classList.add("is-selected");
+      const text = document.createElement("span"); text.className = "selectable-team-card__text";
+      const name = document.createElement("strong"); name.textContent = team.name;
+      const count = document.createElement("small"); count.textContent = `${team.playerIds.length} players`;
+      const view = document.createElement("button"); view.type = "button"; view.className = "team-card-view"; view.textContent = "View players";
+      const roster = rosterPanel(team); roster.hidden = true;
+      view.addEventListener("click", (event) => { event.stopPropagation(); roster.hidden = !roster.hidden; });
+      text.append(name, count); card.append(logo(team, "team-logo team-logo--card"), text, view, roster);
+      const selectTeam = () => { state.tournamentDraft = { teamId: team.id, playerIds: [], editIndex: null }; renderTournamentEditor(); };
+      card.addEventListener("click", selectTeam); card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectTeam(); } });
+      fragment.append(card);
+    });
+    if (!fragment.childNodes.length) fragment.append(Object.assign(document.createElement("p"), { className: "picker-empty", textContent: "No available teams match this search." }));
+    nodes.tournamentTeamCards.replaceChildren(fragment);
   }
 
   function upsertEditingTournament() {
@@ -260,7 +288,7 @@
   }
 
   function renderTournamentPicker() {
-    renderTournamentTeamSelect();
+    renderTournamentTeamCards();
     const team = teamById().get(state.tournamentDraft.teamId);
     const fragment = document.createDocumentFragment();
     if (team) teamPlayers(team).forEach((player) => {
@@ -364,7 +392,7 @@
   nodes.addPlayerButton.addEventListener("click", () => { if (!nodes.addPlayer.value) return; Store.addPlayer(state.editingTeam, Number(nodes.addPlayer.value)); renderRoster(); });
   nodes.confirmMerge.addEventListener("click", confirmMerge);
   nodes.createTournament.addEventListener("click", createTournament); nodes.exportTournaments.addEventListener("click", exportTournaments);
-  nodes.tournamentTeamSelect.addEventListener("change", () => { state.tournamentDraft = { teamId: nodes.tournamentTeamSelect.value, playerIds: [], editIndex: null }; renderTournamentEditor(); });
+  nodes.tournamentTeamSearch.addEventListener("input", renderTournamentPicker);
   nodes.addTournamentTeam.addEventListener("click", confirmTournamentTeam);
   nodes.tournamentForm.addEventListener("submit", (event) => { if (event.submitter?.value === "default") saveTournament(); });
   nodes.tournamentName.addEventListener("input", () => { if (!state.editingTournament) return; state.editingTournament.name = nodes.tournamentName.value; nodes.tournamentTitle.textContent = nodes.tournamentName.value || "Mini Tournament"; if (nodes.tournamentName.value.trim()) upsertEditingTournament(); });

@@ -300,3 +300,98 @@ dialog::backdrop { background: rgba(3,20,37,.7); backdrop-filter: blur(3px); }
 .selected-player-list { display: flex; flex-wrap: wrap; gap: 7px; padding: 14px; }
 .selected-player { display: inline-flex; max-width: 190px; align-items: center; gap: 7px; padding: 5px 9px 5px 5px; overflow: hidden; border: 1px solid var(--line); border-radius: 999px; background: #fff; font-size: .72rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .selected-player img { width: 28px; height: 28px; flex: 0 0 auto; border-radius: 50%; object-fit: contain; background: #e4edf4; }
+
+.team-card-search {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: .75rem 1rem;
+  font: inherit;
+  background: #fff;
+}
+
+.selectable-team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: .8rem;
+  margin: .75rem 0;
+}
+
+.selectable-team-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+  padding: .85rem;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: .7rem;
+  cursor: pointer;
+  text-align: left;
+  box-shadow: 0 10px 24px rgba(20, 52, 89, .08);
+}
+
+.selectable-team-card:hover,
+.selectable-team-card:focus,
+.selectable-team-card.is-selected {
+  border-color: var(--blue);
+  outline: none;
+  box-shadow: 0 14px 30px rgba(34, 118, 245, .16);
+}
+
+.selectable-team-card__text {
+  display: grid;
+  gap: .15rem;
+}
+
+.selectable-team-card__text small {
+  color: var(--muted);
+}
+
+.team-card-view {
+  border: 0;
+  border-radius: 999px;
+  background: #eef5ff;
+  color: #1656a3;
+  padding: .45rem .7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.selectable-team-roster {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  padding-top: .6rem;
+}
+
+.selectable-team-roster[hidden] {
+  display: none;
+}
+
+.championship-staff-editor {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.staff-selection {
+  display: grid;
+  gap: .45rem;
+  margin-top: .7rem;
+}
+
+.staff-selection h4 {
+  margin: .4rem 0 0;
+}
+
+@media (max-width: 620px) {
+  .selectable-team-card {
+    grid-template-columns: auto 1fr;
+  }
+  .team-card-view {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}

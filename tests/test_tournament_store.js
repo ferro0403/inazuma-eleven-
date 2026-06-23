@@ -21,7 +21,7 @@ assert.equal(Tournaments.validate(tournament, teams, players).valid, true);
 const exported = Tournaments.exportText([tournament], teams, players);
 assert.match(exported, /^const miniTournaments = /);
 assert.match(exported, /"teamId": "raimon"/);
-assert.doesNotMatch(exported, /"logoUrl"|"position"|"element"/);
+assert.doesNotMatch(exported, /"logoUrl"|"position"|"element"|"headCoachId"|"staffIds"/);
 
 const invalid = Tournaments.normalizeTournament({ name: "Bad", teams: [{ teamId: "raimon", playerIds: [1, 2, 99] }, { teamId: "raimon", playerIds: [1, 2, 3, 4, 5, 7] }] });
 const errors = Tournaments.validate(invalid, teams, players).errors.join(" ");

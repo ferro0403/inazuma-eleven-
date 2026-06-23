@@ -103,7 +103,9 @@
       <section class="tournament-builder">
         <div class="tournament-picker">
           <h3>Team picker</h3>
-          <div class="roster-add"><select id="tournament-team-select"></select><button id="add-tournament-team" type="button" disabled>Add team to tournament</button></div>
+          <input id="tournament-team-search" class="team-card-search" type="search" placeholder="Search available teams…">
+          <div id="tournament-team-cards" class="selectable-team-grid"></div>
+          <button id="add-tournament-team" class="button" type="button" disabled>Add team to tournament</button>
           <p id="tournament-picker-message" class="picker-message">Select 6 players to add this team</p>
           <div id="tournament-player-picker" class="tournament-player-list"></div>
         </div>
@@ -125,8 +127,9 @@
       <section class="tournament-builder">
         <div class="tournament-picker">
           <h3>Add full team</h3>
-          <div class="roster-add"><select id="championship-team-select"></select><button id="add-championship-team" type="button">Add team</button></div>
-          <p class="picker-message">Selecting a team adds its full roster automatically.</p>
+          <input id="championship-team-search" class="team-card-search" type="search" placeholder="Search available teams…">
+          <div id="championship-team-cards" class="selectable-team-grid"></div>
+          <p class="picker-message">Select a team card to add its full roster automatically.</p>
         </div>
         <div class="tournament-added">
           <h3>Teams in this championship</h3>
@@ -143,6 +146,13 @@
       <header class="dialog-header"><div><p class="eyebrow">Roster editor</p><h2 id="championship-roster-title">Edit roster</h2></div><button class="dialog-close" value="cancel" aria-label="Close">×</button></header>
       <div class="manager__tools"><input id="championship-roster-search" type="search" placeholder="Search this team roster…"><button id="reset-championship-roster" class="button button--quiet" type="button">Reset roster to full team</button></div>
       <div id="championship-roster-list" class="tournament-player-list"></div>
+      <section class="championship-staff-editor">
+        <h3>Optional staff</h3>
+        <p class="picker-message">Staff controls are only available in Full Team Championships.</p>
+        <input id="championship-staff-search" class="team-card-search" type="search" placeholder="Search coach or staff candidates…">
+        <div id="championship-head-coach" class="staff-selection"></div>
+        <div id="championship-staff-list" class="staff-selection"></div>
+      </section>
       <footer class="dialog-actions"><span></span><button id="save-championship-roster" class="button" value="default">Done</button></footer>
     </form>
   </dialog>

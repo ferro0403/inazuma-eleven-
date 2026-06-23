@@ -18,6 +18,8 @@
       teams: (Array.isArray(championship.teams) ? championship.teams : []).map((entry) => ({
         teamId: clean(entry?.teamId),
         playerIds: uniqueNumbers(entry?.playerIds),
+        headCoachId: entry?.headCoachId === null || entry?.headCoachId === undefined || entry?.headCoachId === "" ? null : (Number.isFinite(Number(entry.headCoachId)) ? Number(entry.headCoachId) : null),
+        staffIds: uniqueNumbers(entry?.staffIds),
         manualPlayerIds: uniqueNumbers(entry?.manualPlayerIds),
       })).filter((entry) => entry.teamId),
       createdAt: clean(championship.createdAt) || now,
@@ -57,7 +59,7 @@
   }
 
   function fullTeamEntry(team) {
-    return { teamId: team.id, playerIds: uniqueNumbers(team.playerIds), manualPlayerIds: [] };
+    return { teamId: team.id, playerIds: uniqueNumbers(team.playerIds), headCoachId: null, staffIds: [], manualPlayerIds: [] };
   }
 
   function resetToFullRoster(entry, team) {
@@ -84,6 +86,17 @@
         if (!playersById.has(playerId)) errors.push(`${team.name}: player ${playerId} does not exist in players.js.`);
         else if (!teamIds.has(playerId) && !manualIds.has(playerId)) errors.push(`${team.name}: player ${playerId} is not on this team roster.`);
       });
+      const staffSet = new Set(entry.staffIds);
+      if (staffSet.size !== entry.staffIds.length) errors.push(`${team.name}: duplicate staff selections are not allowed.`);
+      if (entry.headCoachId !== null) {
+        if (!playersById.has(entry.headCoachId)) errors.push(`${team.name}: head coach ${entry.headCoachId} does not exist in players.js.`);
+        else if (!teamIds.has(entry.headCoachId)) errors.push(`${team.name}: head coach ${entry.headCoachId} is not on this team.`);
+      }
+      entry.staffIds.forEach((staffId) => {
+        if (!playersById.has(staffId)) errors.push(`${team.name}: staff member ${staffId} does not exist in players.js.`);
+        else if (!teamIds.has(staffId)) errors.push(`${team.name}: staff member ${staffId} is not on this team.`);
+      });
+      if (entry.headCoachId !== null && staffSet.has(entry.headCoachId)) errors.push(`${team.name}: the same person cannot be both head coach and staff.`);
     });
     if (!normalizeChampionship(championship).teams.length) errors.push("Select at least one participating team.");
     return { valid: errors.length === 0, errors };
@@ -94,7 +107,7 @@
     return {
       id: normalized.id,
       name: normalized.name,
-      teams: normalized.teams.map((entry) => ({ teamId: entry.teamId, playerIds: entry.playerIds })),
+      teams: normalized.teams.map((entry) => ({ teamId: entry.teamId, playerIds: entry.playerIds, headCoachId: entry.headCoachId, staffIds: entry.staffIds })),
       createdAt: normalized.createdAt,
       updatedAt: normalized.updatedAt,
     };
