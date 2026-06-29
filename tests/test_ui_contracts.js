@@ -27,4 +27,12 @@ assert.match(ratings, /globalThis\.INAZUMA_TEAMS/);
 assert.doesNotMatch(ratings, /fetch\s*\(/);
 assert.doesNotMatch(ratings, /import\s|export\s|type="module"/);
 
+["attack", "physical", "stamina", "control", "defense", "speed", "grit", "save"].forEach((stat) => assert.match(ratings, new RegExp(`\"${stat}\"`)));
+assert.match(ratings, /localStorage/);
+assert.match(index, /Export ratings\.json/);
+assert.match(index, /Export teams\.rated\.json/);
+assert.match(ratings, /ratings\.json/);
+assert.match(ratings, /teams\.rated\.json/);
+assert.match(ratings, /SALVA E PROSSIMO/);
+
 console.log("UI contract tests passed.");
