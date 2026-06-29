@@ -17,4 +17,14 @@ assert.match(full, /headCoachId/);
 assert.match(full, /staffIds/);
 assert.doesNotMatch(miniStore, /headCoachId|staffIds/);
 assert.doesNotMatch(app, /headCoachId|staffIds/);
+const ratings = fs.readFileSync("player-ratings.js", "utf8");
+assert.match(index, /data-view="ratings"/);
+assert.match(index, /id="ratings-view"/);
+assert.match(index, /player-ratings\.js/);
+assert.match(app, /InazumaPlayerRatings\?\.render/);
+assert.match(ratings, /globalThis\.INAZUMA_PLAYERS/);
+assert.match(ratings, /globalThis\.INAZUMA_TEAMS/);
+assert.doesNotMatch(ratings, /fetch\s*\(/);
+assert.doesNotMatch(ratings, /import\s|export\s|type="module"/);
+
 console.log("UI contract tests passed.");

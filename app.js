@@ -15,7 +15,7 @@
 
   const $ = (selector) => document.querySelector(selector);
   const nodes = {
-    views: { players: $("#players-view"), teams: $("#teams-view"), tournaments: $("#tournaments-view"), championships: $("#championships-view") }, tabs: [...document.querySelectorAll(".view-tab")],
+    views: { players: $("#players-view"), teams: $("#teams-view"), tournaments: $("#tournaments-view"), championships: $("#championships-view"), ratings: $("#ratings-view") }, tabs: [...document.querySelectorAll(".view-tab")],
     search: $("#search"), team: $("#team-filter"), position: $("#position-filter"), element: $("#element-filter"), reset: $("#reset-filters"), emptyReset: $("#empty-reset"),
     grid: $("#player-grid"), empty: $("#empty-state"), pagination: $("#pagination"), count: $("#result-count"), total: $("#total-count"),
     teamGrid: $("#team-grid"), teamCount: $("#team-count"), teamSearch: $("#team-search"), createTeam: $("#create-team"), mergeTeams: $("#merge-teams"), exportTeams: $("#export-teams"),
@@ -52,6 +52,7 @@
     if (view === "teams") renderTeams();
     else if (view === "tournaments") renderTournaments();
     else if (view === "championships") globalThis.InazumaFullTeamChampionships?.render();
+    else if (view === "ratings") globalThis.InazumaPlayerRatings?.render();
     else renderPlayers();
   }
 

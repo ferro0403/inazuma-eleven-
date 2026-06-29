@@ -16,6 +16,7 @@
         <button class="view-tab" data-view="teams" type="button">Team Manager</button>
         <button class="view-tab" data-view="tournaments" type="button">Mini Tournaments</button>
         <button class="view-tab" data-view="championships" type="button">Full Team Championships</button>
+        <button class="view-tab" data-view="ratings" type="button">Player Ratings</button>
       </div>
     </div>
   </nav>
@@ -75,6 +76,23 @@
       </div>
       <p id="championship-count" class="result-count"></p>
       <div id="championship-grid" class="tournament-grid"></div>
+    </section>
+
+    <section id="ratings-view" class="app-view manager" hidden>
+      <div class="manager__heading">
+        <div><p class="eyebrow">Data check</p><h2>Player Ratings</h2><p>Read-only verification page for players and team links before rating tools are added.</p></div>
+      </div>
+      <div id="ratings-debug" class="ratings-debug" aria-live="polite"></div>
+      <div class="ratings-layout">
+        <section>
+          <h3>Squadre</h3>
+          <div id="ratings-team-list" class="ratings-team-list"></div>
+        </section>
+        <section>
+          <h3 id="ratings-player-heading">Giocatori squadra</h3>
+          <div id="ratings-player-list" class="ratings-player-list"></div>
+        </section>
+      </div>
     </section>
   </main>
 
@@ -158,6 +176,6 @@
   </dialog>
 
   <footer><div class="shell">Fan-made data browser. Character data and images belong to LEVEL5 Inc.</div></footer>
-  <script src="data/players.js"></script><script src="data/teams.js"></script><script src="team-store.js"></script><script src="tournament-store.js"></script><script src="full-team-championship-store.js"></script><script src="app.js"></script><script src="full-team-championships.js"></script>
+  <script src="data/players.js"></script><script src="data/teams.js"></script><script src="team-store.js"></script><script src="tournament-store.js"></script><script src="full-team-championship-store.js"></script><script src="app.js"></script><script src="full-team-championships.js"></script><script src="player-ratings.js"></script>
 </body>
 </html>
