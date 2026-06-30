@@ -20,6 +20,7 @@
   const nodes = {
     debug: $("#ratings-debug"), progress: $("#ratings-progress"), teams: $("#ratings-team-list"), selectedTeam: $("#ratings-selected-team"), heading: $("#ratings-player-heading"), players: $("#ratings-player-list"), editor: $("#ratings-editor"),
     search: $("#ratings-player-search"), status: $("#ratings-status-filter"), toggleTeams: $("#ratings-toggle-teams"), exportRatings: $("#export-ratings"), exportTeams: $("#export-rated-teams"),
+    exportTeamList: $("#ratings-export-team-list"), exportSelectAll: $("#ratings-export-select-all"), exportClear: $("#ratings-export-clear"), exportRatedOnly: $("#ratings-export-rated-only"), exportSelectedTeams: $("#export-selected-team-ratings"), exportFeedback: $("#ratings-export-feedback"),
   };
   const playerById = new Map(players.map((player) => [String(player.id), player]));
   let selectedTeamId = teams[0]?.id || "";
@@ -29,6 +30,7 @@
   let ratings = loadRatings();
   let completionMessage = "";
   let teamsCollapsed = false;
+  const selectedExportTeamIds = new Set();
 
   const clean = (value) => String(value ?? "").trim();
   const key = (value) => clean(value).toLocaleLowerCase();
@@ -295,6 +297,18 @@
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([text], { type: "application/json" })); link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 0);
   }
 
+  function ratedPlayerPayload(player) {
+    const rating = normalizeRating(ratings[playerId(player)]); const overall = overallFor(player, rating);
+    return { playerId: playerId(player), name: player.name || "", position: player.position || player.role || "", ...Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, rating[stat]])), overall, category: categoryFor(overall) };
+  }
+
+  function selectedTeamExportPayload(team) {
+    const ratedPlayers = playersForTeam(team).filter(isRated).map(ratedPlayerPayload);
+    const overalls = ratedPlayers.map((player) => player.overall);
+    const teamOverall = overalls.length ? Math.round(overalls.reduce((sum, value) => sum + value, 0) / overalls.length) : null;
+    return { teamId: String(team.id ?? ""), teamName: team.name || "", teamOverall, teamStars: starsFor(teamOverall), ratedPlayers: ratedPlayers.length, totalPlayers: playersForTeam(team).length, players: ratedPlayers };
+  }
+
   function exportRatingsJson() {
     const payload = players.filter(isRated).map((player) => {
       const rating = normalizeRating(ratings[playerId(player)]); const overall = overallFor(player, rating);
@@ -308,11 +322,44 @@
     download("teams.rated.json", JSON.stringify(payload, null, 2));
   }
 
+  function renderSelectedTeamsExport() {
+    if (!nodes.exportTeamList || !nodes.exportSelectedTeams || !nodes.exportFeedback) return;
+    const fragment = document.createDocumentFragment();
+    teams.forEach((team) => {
+      const summary = teamSummary(team);
+      const row = document.createElement("label"); row.className = "ratings-export-team-row";
+      const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = selectedExportTeamIds.has(team.id);
+      checkbox.addEventListener("change", () => { checkbox.checked ? selectedExportTeamIds.add(team.id) : selectedExportTeamIds.delete(team.id); renderSelectedTeamsExport(); });
+      const text = document.createElement("span"); text.className = "ratings-export-team-row__text";
+      const name = document.createElement("strong"); name.textContent = team.name || team.id || "Squadra";
+      const meta = document.createElement("small"); meta.textContent = `${summary.ratedPlayers}/${summary.totalPlayers} valutati · ${summary.teamOverall === null ? "OVR -- · ★ --" : `OVR ${summary.teamOverall} · ★ ${summary.teamStars}`}`;
+      text.append(name, meta); row.append(checkbox, imageOrPlaceholder(team.logoUrl, `${team.name} logo`, team.name, "team-logo team-logo--tiny"), text); fragment.append(row);
+    });
+    nodes.exportTeamList.replaceChildren(fragment);
+    const selectedCount = selectedExportTeamIds.size;
+    nodes.exportSelectedTeams.disabled = selectedCount === 0;
+    if (selectedCount === 0) nodes.exportFeedback.textContent = "Seleziona almeno una squadra da esportare.";
+    else {
+      const zeroRated = teams.filter((team) => selectedExportTeamIds.has(team.id) && teamSummary(team).ratedPlayers === 0).length;
+      nodes.exportFeedback.textContent = zeroRated ? `${selectedCount} squadre selezionate. Alcune squadre selezionate non hanno giocatori valutati.` : `${selectedCount} squadre selezionate.`;
+    }
+  }
+
+  function exportSelectedTeamsRatingsJson() {
+    if (!selectedExportTeamIds.size) { if (nodes.exportFeedback) nodes.exportFeedback.textContent = "Seleziona almeno una squadra da esportare."; return; }
+    const selectedTeams = teams.filter((team) => selectedExportTeamIds.has(team.id));
+    const payload = selectedTeams.map(selectedTeamExportPayload);
+    const exportedPlayers = payload.reduce((sum, team) => sum + team.players.length, 0);
+    const zeroRated = payload.some((team) => team.players.length === 0);
+    download("selected-teams-ratings.json", JSON.stringify(payload, null, 2));
+    if (nodes.exportFeedback) nodes.exportFeedback.textContent = `Export creato: ${payload.length} squadre, ${exportedPlayers} giocatori valutati.${zeroRated ? " Alcune squadre selezionate non hanno giocatori valutati." : ""}`;
+  }
+
   function render() {
     if (!nodes.debug || !nodes.teams || !nodes.players) return;
     document.body.classList.toggle("ratings-teams-collapsed", teamsCollapsed);
     if (nodes.toggleTeams) nodes.toggleTeams.textContent = teamsCollapsed ? "Mostra squadre" : "Nascondi squadre";
-    renderDebug(); renderProgress(); renderTeams(); renderSelectedTeamBar(); renderPlayers(); renderEditor();
+    renderDebug(); renderProgress(); renderTeams(); renderSelectedTeamBar(); renderPlayers(); renderEditor(); renderSelectedTeamsExport();
   }
 
   nodes.search?.addEventListener("input", () => { playerSearch = nodes.search.value; renderPlayers(); });
@@ -320,5 +367,9 @@
   nodes.toggleTeams?.addEventListener("click", () => { teamsCollapsed = !teamsCollapsed; render(); });
   nodes.exportRatings?.addEventListener("click", exportRatingsJson);
   nodes.exportTeams?.addEventListener("click", exportTeamsRatedJson);
-  globalThis.InazumaPlayerRatings = { render, playersForTeam, overallFor, categoryFor, starsFor, exportRatingsJson, exportTeamsRatedJson };
+  nodes.exportSelectAll?.addEventListener("click", () => { teams.forEach((team) => selectedExportTeamIds.add(team.id)); renderSelectedTeamsExport(); });
+  nodes.exportClear?.addEventListener("click", () => { selectedExportTeamIds.clear(); renderSelectedTeamsExport(); });
+  nodes.exportRatedOnly?.addEventListener("click", () => { selectedExportTeamIds.clear(); teams.filter((team) => teamSummary(team).ratedPlayers > 0).forEach((team) => selectedExportTeamIds.add(team.id)); renderSelectedTeamsExport(); });
+  nodes.exportSelectedTeams?.addEventListener("click", exportSelectedTeamsRatingsJson);
+  globalThis.InazumaPlayerRatings = { render, playersForTeam, overallFor, categoryFor, starsFor, exportRatingsJson, exportTeamsRatedJson, exportSelectedTeamsRatingsJson };
 })();

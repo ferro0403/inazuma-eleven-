@@ -84,6 +84,11 @@
       </div>
       <details class="ratings-debug-details"><summary>Debug</summary><div id="ratings-debug" class="ratings-debug" aria-live="polite"></div></details>
       <div class="manager__actions ratings-actions"><button id="export-ratings" class="button button--quiet" type="button">Export ratings.json</button><button id="export-rated-teams" class="button button--quiet" type="button">Export teams.rated.json</button></div>
+      <details class="ratings-selected-export"><summary>Export per squadre</summary>
+        <div class="ratings-selected-export__actions"><button id="ratings-export-select-all" class="button button--quiet" type="button">Seleziona tutte</button><button id="ratings-export-clear" class="button button--quiet" type="button">Deseleziona tutte</button><button id="ratings-export-rated-only" class="button button--quiet" type="button">Solo squadre con almeno 1 giocatore valutato</button></div>
+        <div id="ratings-export-team-list" class="ratings-export-team-list"></div>
+        <div class="ratings-selected-export__footer"><button id="export-selected-team-ratings" class="button" type="button" disabled>Export squadre selezionate</button><p id="ratings-export-feedback" class="picker-message">Seleziona almeno una squadra da esportare.</p></div>
+      </details>
       <div id="ratings-progress" class="ratings-progress"></div>
       <div class="ratings-layout">
         <section class="ratings-teams-panel">

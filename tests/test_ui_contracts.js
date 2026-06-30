@@ -35,6 +35,10 @@ assert.match(index, /<details class="ratings-debug-details">/);
 assert.match(index, /ratings-toggle-teams/);
 assert.match(ratings, /ratings\.json/);
 assert.match(ratings, /teams\.rated\.json/);
+assert.match(index, /Export per squadre/);
+assert.match(index, /Export squadre selezionate/);
+assert.match(ratings, /selected-teams-ratings\.json/);
+assert.match(ratings, /exportSelectedTeamsRatingsJson/);
 assert.match(ratings, /SALVA E PROSSIMO/);
 
 console.log("UI contract tests passed.");

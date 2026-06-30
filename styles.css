@@ -1010,3 +1010,76 @@ dialog::backdrop { background: rgba(3,20,37,.7); backdrop-filter: blur(3px); }
     grid-column: 1 / -1;
   }
 }
+
+.ratings-selected-export {
+  margin-bottom: .65rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  padding: .55rem .7rem;
+  box-shadow: 0 8px 18px rgba(18, 45, 72, .06);
+}
+
+.ratings-selected-export summary {
+  color: var(--blue-dark);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ratings-selected-export__actions,
+.ratings-selected-export__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+  align-items: center;
+  margin-top: .55rem;
+}
+
+.ratings-selected-export__actions .button,
+.ratings-selected-export__footer .button {
+  padding: .45rem .7rem;
+  font-size: .74rem;
+}
+
+.ratings-export-team-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: .4rem;
+  margin-top: .55rem;
+}
+
+.ratings-export-team-row {
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: auto 32px 1fr;
+  align-items: center;
+  gap: .45rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcfd;
+  padding: .35rem .45rem;
+  cursor: pointer;
+}
+
+.ratings-export-team-row .team-logo--tiny {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+}
+
+.ratings-export-team-row__text {
+  display: grid;
+  min-width: 0;
+}
+
+.ratings-export-team-row__text strong {
+  overflow: hidden;
+  font-size: .8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ratings-export-team-row__text small {
+  color: var(--muted);
+  font-size: .68rem;
+}
