@@ -39,6 +39,10 @@ assert.match(index, /Export per squadre/);
 assert.match(index, /Export squadre selezionate/);
 assert.match(ratings, /selected-teams-ratings\.json/);
 assert.match(ratings, /exportSelectedTeamsRatingsJson/);
+assert.match(ratings, /logoUrl: teamLogoUrl/);
+assert.match(ratings, /portraitUrl: playerPortraitUrl/);
+assert.match(ratings, /"crestUrl"/);
+assert.match(ratings, /"pictureUrl"/);
 assert.match(ratings, /SALVA E PROSSIMO/);
 
 console.log("UI contract tests passed.");

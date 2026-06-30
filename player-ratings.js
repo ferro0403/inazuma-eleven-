@@ -297,16 +297,29 @@
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([text], { type: "application/json" })); link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 0);
   }
 
+  function firstImageUrl(source, fields) {
+    const value = fields.map((field) => clean(source?.[field])).find(Boolean);
+    return value || null;
+  }
+
+  function teamLogoUrl(team) {
+    return firstImageUrl(team, ["logoUrl", "logo", "crestUrl", "imageUrl", "badgeUrl", "emblemUrl"]);
+  }
+
+  function playerPortraitUrl(player) {
+    return firstImageUrl(player, ["portraitUrl", "portrait", "imageUrl", "avatar", "photoUrl", "pictureUrl"]);
+  }
+
   function ratedPlayerPayload(player) {
     const rating = normalizeRating(ratings[playerId(player)]); const overall = overallFor(player, rating);
-    return { playerId: playerId(player), name: player.name || "", position: player.position || player.role || "", ...Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, rating[stat]])), overall, category: categoryFor(overall) };
+    return { playerId: playerId(player), name: player.name || "", portraitUrl: playerPortraitUrl(player), position: player.position || player.role || "", ...Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, rating[stat]])), overall, category: categoryFor(overall) };
   }
 
   function selectedTeamExportPayload(team) {
     const ratedPlayers = playersForTeam(team).filter(isRated).map(ratedPlayerPayload);
     const overalls = ratedPlayers.map((player) => player.overall);
     const teamOverall = overalls.length ? Math.round(overalls.reduce((sum, value) => sum + value, 0) / overalls.length) : null;
-    return { teamId: String(team.id ?? ""), teamName: team.name || "", teamOverall, teamStars: starsFor(teamOverall), ratedPlayers: ratedPlayers.length, totalPlayers: playersForTeam(team).length, players: ratedPlayers };
+    return { teamId: String(team.id ?? ""), teamName: team.name || "", logoUrl: teamLogoUrl(team), teamOverall, teamStars: starsFor(teamOverall), ratedPlayers: ratedPlayers.length, totalPlayers: playersForTeam(team).length, players: ratedPlayers };
   }
 
   function exportRatingsJson() {
