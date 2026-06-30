@@ -82,18 +82,21 @@
       <div class="manager__heading">
         <div><p class="eyebrow">Data check</p><h2>Player Ratings</h2><p>Read-only verification page for players and team links before rating tools are added.</p></div>
       </div>
-      <div id="ratings-debug" class="ratings-debug" aria-live="polite"></div>
+      <details class="ratings-debug-details"><summary>Debug</summary><div id="ratings-debug" class="ratings-debug" aria-live="polite"></div></details>
       <div class="manager__actions ratings-actions"><button id="export-ratings" class="button button--quiet" type="button">Export ratings.json</button><button id="export-rated-teams" class="button button--quiet" type="button">Export teams.rated.json</button></div>
       <div id="ratings-progress" class="ratings-progress"></div>
       <div class="ratings-layout">
-        <section>
-          <h3>Squadre</h3>
+        <section class="ratings-teams-panel">
+          <div class="ratings-section-bar"><h3>Squadre</h3><button id="ratings-toggle-teams" class="button button--quiet" type="button">Nascondi squadre</button></div>
           <div id="ratings-team-list" class="ratings-team-list"></div>
         </section>
-        <section>
+        <section class="ratings-roster-panel">
+          <div id="ratings-selected-team" class="ratings-selected-team"></div>
           <h3 id="ratings-player-heading">Giocatori squadra</h3>
           <div class="ratings-filters"><input id="ratings-player-search" type="search" placeholder="Cerca giocatore…"><select id="ratings-status-filter"><option value="all">Tutti</option><option value="rated">Valutati</option><option value="unrated">Non valutati</option></select></div>
           <div id="ratings-player-list" class="ratings-player-list"></div>
+        </section>
+        <section class="ratings-editor-panel">
           <div id="ratings-editor" class="ratings-editor" hidden></div>
         </section>
       </div>

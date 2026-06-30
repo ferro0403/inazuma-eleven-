@@ -31,6 +31,8 @@ assert.doesNotMatch(ratings, /import\s|export\s|type="module"/);
 assert.match(ratings, /localStorage/);
 assert.match(index, /Export ratings\.json/);
 assert.match(index, /Export teams\.rated\.json/);
+assert.match(index, /<details class="ratings-debug-details">/);
+assert.match(index, /ratings-toggle-teams/);
 assert.match(ratings, /ratings\.json/);
 assert.match(ratings, /teams\.rated\.json/);
 assert.match(ratings, /SALVA E PROSSIMO/);

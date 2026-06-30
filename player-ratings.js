@@ -18,8 +18,8 @@
   const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
   const $ = (selector) => document.querySelector(selector);
   const nodes = {
-    debug: $("#ratings-debug"), progress: $("#ratings-progress"), teams: $("#ratings-team-list"), heading: $("#ratings-player-heading"), players: $("#ratings-player-list"), editor: $("#ratings-editor"),
-    search: $("#ratings-player-search"), status: $("#ratings-status-filter"), exportRatings: $("#export-ratings"), exportTeams: $("#export-rated-teams"),
+    debug: $("#ratings-debug"), progress: $("#ratings-progress"), teams: $("#ratings-team-list"), selectedTeam: $("#ratings-selected-team"), heading: $("#ratings-player-heading"), players: $("#ratings-player-list"), editor: $("#ratings-editor"),
+    search: $("#ratings-player-search"), status: $("#ratings-status-filter"), toggleTeams: $("#ratings-toggle-teams"), exportRatings: $("#export-ratings"), exportTeams: $("#export-rated-teams"),
   };
   const playerById = new Map(players.map((player) => [String(player.id), player]));
   let selectedTeamId = teams[0]?.id || "";
@@ -28,6 +28,7 @@
   let statusFilter = "all";
   let ratings = loadRatings();
   let completionMessage = "";
+  let teamsCollapsed = false;
 
   const clean = (value) => String(value ?? "").trim();
   const key = (value) => clean(value).toLocaleLowerCase();
@@ -189,11 +190,11 @@
       button.append(imageOrPlaceholder(team.logoUrl, `${team.name} logo`, team.name, "team-logo team-logo--card"));
       const text = document.createElement("span"); text.className = "ratings-team-card__text";
       const name = document.createElement("strong"); name.textContent = team.name || team.id || "Unnamed team";
-      const id = document.createElement("small"); id.textContent = `ID: ${team.id || "—"}`;
-      const progress = document.createElement("small"); progress.textContent = `${summary.ratedPlayers} valutati / ${summary.totalPlayers} squadra`;
-      const overall = document.createElement("small"); overall.textContent = summary.teamOverall === null ? "Team overall: -- · Stelle: --" : `Team overall: ${summary.teamOverall} · Stelle: ${summary.teamStars}`;
+      const id = document.createElement("small"); id.className = "ratings-team-id"; id.textContent = `ID: ${team.id || "—"}`;
+      const progress = document.createElement("small"); progress.textContent = `${summary.ratedPlayers}/${summary.totalPlayers}`;
+      const overall = document.createElement("small"); overall.textContent = summary.teamOverall === null ? "OVR -- · ★ --" : `OVR ${summary.teamOverall} · ★ ${summary.teamStars}`;
       text.append(name, id, progress, overall); button.append(text);
-      button.addEventListener("click", () => { selectedTeamId = team.id; selectedPlayerId = ""; completionMessage = ""; render(); });
+      button.addEventListener("click", () => { selectedTeamId = team.id; selectedPlayerId = ""; completionMessage = ""; teamsCollapsed = true; render(); });
       fragment.append(button);
     });
     nodes.teams.replaceChildren(fragment);
@@ -219,6 +220,19 @@
     const message = document.createElement("p"); message.textContent = "Nessun giocatore collegato a questa squadra";
     const fields = document.createElement("small"); fields.textContent = `Campi squadra disponibili: ${Object.keys(team || {}).join(", ") || "nessuno"}`;
     box.append(message, fields); return box;
+  }
+
+  function renderSelectedTeamBar() {
+    const team = selectedTeam();
+    if (!team || !nodes.selectedTeam) return;
+    const summary = teamSummary(team);
+    nodes.selectedTeam.replaceChildren(
+      imageOrPlaceholder(team.logoUrl, `${team.name} logo`, team.name, "team-logo team-logo--card"),
+      Object.assign(document.createElement("strong"), { textContent: team.name || team.id || "Squadra" }),
+      Object.assign(document.createElement("span"), { textContent: `${summary.ratedPlayers}/${summary.totalPlayers} valutati` }),
+      Object.assign(document.createElement("span"), { textContent: summary.teamOverall === null ? "OVR --" : `OVR ${summary.teamOverall}` }),
+      Object.assign(document.createElement("span"), { textContent: summary.teamStars === null ? "★ --" : `★ ${summary.teamStars}` }),
+    );
   }
 
   function renderPlayers() {
@@ -296,11 +310,14 @@
 
   function render() {
     if (!nodes.debug || !nodes.teams || !nodes.players) return;
-    renderDebug(); renderProgress(); renderTeams(); renderPlayers(); renderEditor();
+    document.body.classList.toggle("ratings-teams-collapsed", teamsCollapsed);
+    if (nodes.toggleTeams) nodes.toggleTeams.textContent = teamsCollapsed ? "Mostra squadre" : "Nascondi squadre";
+    renderDebug(); renderProgress(); renderTeams(); renderSelectedTeamBar(); renderPlayers(); renderEditor();
   }
 
   nodes.search?.addEventListener("input", () => { playerSearch = nodes.search.value; renderPlayers(); });
   nodes.status?.addEventListener("change", () => { statusFilter = nodes.status.value; renderPlayers(); });
+  nodes.toggleTeams?.addEventListener("click", () => { teamsCollapsed = !teamsCollapsed; render(); });
   nodes.exportRatings?.addEventListener("click", exportRatingsJson);
   nodes.exportTeams?.addEventListener("click", exportTeamsRatedJson);
   globalThis.InazumaPlayerRatings = { render, playersForTeam, overallFor, categoryFor, starsFor, exportRatingsJson, exportTeamsRatedJson };
