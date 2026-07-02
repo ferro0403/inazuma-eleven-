@@ -4,6 +4,8 @@
   const players = Array.isArray(globalThis.INAZUMA_PLAYERS) ? globalThis.INAZUMA_PLAYERS : [];
   const teams = Array.isArray(globalThis.INAZUMA_TEAMS) ? globalThis.INAZUMA_TEAMS : [];
   const STORAGE_KEY = "inazumaPlayerRatings";
+  const EVALUATOR_KEY = "inazumaPlayerRatingsEvaluator";
+  const FIRESTORE_PROJECT_PATH = "inazumaRatingProjects/main/ratings";
   const STAT_DEFS = [
     ["attack", "Attacco"], ["physical", "Fisico"], ["stamina", "Resistenza"], ["control", "Controllo"],
     ["defense", "Difesa"], ["speed", "Velocità"], ["grit", "Grinta"], ["save", "Parata"],
@@ -21,6 +23,7 @@
     debug: $("#ratings-debug"), progress: $("#ratings-progress"), teams: $("#ratings-team-list"), selectedTeam: $("#ratings-selected-team"), heading: $("#ratings-player-heading"), players: $("#ratings-player-list"), editor: $("#ratings-editor"),
     search: $("#ratings-player-search"), status: $("#ratings-status-filter"), toggleTeams: $("#ratings-toggle-teams"), exportRatings: $("#export-ratings"), exportTeams: $("#export-rated-teams"),
     exportTeamList: $("#ratings-export-team-list"), exportSelectAll: $("#ratings-export-select-all"), exportClear: $("#ratings-export-clear"), exportRatedOnly: $("#ratings-export-rated-only"), exportSelectedTeams: $("#export-selected-team-ratings"), exportFeedback: $("#ratings-export-feedback"),
+    syncStatus: $("#ratings-sync-status"), evaluatorName: $("#ratings-evaluator-name"), uploadFirestore: $("#ratings-upload-firestore"), importJson: $("#ratings-import-json"),
   };
   const playerById = new Map(players.map((player) => [String(player.id), player]));
   let selectedTeamId = teams[0]?.id || "";
@@ -28,6 +31,7 @@
   let playerSearch = "";
   let statusFilter = "all";
   let ratings = loadRatings();
+  let syncState = { status: "Offline / solo localStorage", firestoreEnabled: false, firestoreLoaded: 0, authUid: "", lastError: "", lastSave: "", evaluatorName: localStorage.getItem(EVALUATOR_KEY) || "" };
   let completionMessage = "";
   let teamsCollapsed = false;
   const selectedExportTeamIds = new Set();
@@ -49,10 +53,57 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(ratings));
   }
 
+  function timestampValue(value) {
+    if (!value) return 0;
+    if (typeof value.toMillis === "function") return value.toMillis();
+    if (typeof value.seconds === "number") return value.seconds * 1000;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function shouldUseIncoming(existing, incoming) {
+    const existingTime = timestampValue(existing?.updatedAt);
+    const incomingTime = timestampValue(incoming?.updatedAt);
+    if (existingTime && incomingTime) return incomingTime >= existingTime;
+    if (incomingTime && !existingTime) return true;
+    if (!existingTime && !incomingTime && !existing) return true;
+    return false;
+  }
+
+  function mergeRatingRecord(playerIdValue, record) {
+    const id = String(playerIdValue || record?.playerId || "");
+    if (!id || !record) return false;
+    const normalized = normalizeRating(record);
+    if (record.updatedBy) normalized.updatedBy = clean(record.updatedBy);
+    if (shouldUseIncoming(ratings[id], normalized)) { ratings[id] = normalized; return true; }
+    return false;
+  }
+
+  function updateSyncStatus(status, error) {
+    syncState.status = status;
+    if (error) syncState.lastError = clean(error.message || error);
+    if (nodes.syncStatus) nodes.syncStatus.textContent = `Stato sync: ${status}`;
+    if (nodes.uploadFirestore) nodes.uploadFirestore.disabled = !syncState.firestoreEnabled;
+  }
+
+  function firestoreCollection() {
+    const db = window.INAZUMA_FIRESTORE;
+    const [projectCollection, projectId, ratingsCollection] = FIRESTORE_PROJECT_PATH.split("/");
+    return db && typeof db.collection === "function" ? db.collection(projectCollection).doc(projectId).collection(ratingsCollection) : null;
+  }
+
+  function updatedAtString(value) {
+    if (!value) return "";
+    if (typeof value.toDate === "function") return value.toDate().toISOString();
+    if (typeof value.toMillis === "function") return new Date(value.toMillis()).toISOString();
+    if (typeof value.seconds === "number") return new Date(value.seconds * 1000).toISOString();
+    return clean(value);
+  }
+
   function normalizeRating(record = {}) {
     const stats = { ...DEFAULT_STATS };
     STAT_DEFS.forEach(([stat]) => { stats[stat] = clampStat(record[stat]); });
-    return { ...stats, updatedAt: clean(record.updatedAt) || new Date().toISOString() };
+    return { ...stats, updatedAt: updatedAtString(record.updatedAt) || new Date().toISOString() };
   }
 
   function draftRating(player) {
@@ -172,7 +223,11 @@
     nodes.debug.replaceChildren(
       stat("Giocatori caricati", players.length.toLocaleString()), stat("Squadre caricate", teams.length.toLocaleString()),
       stat("Fonte dati giocatori", "globalThis.INAZUMA_PLAYERS"), stat("Fonte dati squadre", "globalThis.INAZUMA_TEAMS"),
-      stat("Valutazioni salvate in localStorage", Object.keys(ratings).length.toLocaleString()),
+      stat("Valutazioni salvate in localStorage", Object.keys(loadRatings()).length.toLocaleString()),
+      stat("Rating caricati da Firestore", syncState.firestoreLoaded.toLocaleString()),
+      stat("Utente anonimo Firebase", syncState.authUid || "—"),
+      stat("Nome valutatore", syncState.evaluatorName || "Utente"),
+      stat("Ultimo errore sync", syncState.lastError || "—"),
       stat("Squadra selezionata", team ? `${team.name || "—"} / ${team.id || "—"}` : "—"),
       stat("Giocatori collegati alla squadra selezionata", team ? playersForTeam(team).length.toLocaleString() : "0"),
     );
@@ -248,8 +303,25 @@
   }
 
   function saveRating(player, rating) {
-    ratings[playerId(player)] = { ...normalizeRating(rating), updatedAt: new Date().toISOString() };
+    const id = playerId(player);
+    ratings[id] = { ...normalizeRating(rating), updatedAt: new Date().toISOString(), updatedBy: syncState.evaluatorName || "Utente" };
     persistRatings();
+    saveRatingToFirestore(id, ratings[id]);
+  }
+
+  function firestorePayload(id, rating) {
+    const normalized = normalizeRating(rating);
+    const payload = { playerId: String(id), ...Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, normalized[stat]])), overall: overallFor(playerById.get(String(id)), normalized), category: categoryFor(overallFor(playerById.get(String(id)), normalized)), updatedBy: syncState.evaluatorName || "Utente" };
+    const firebaseObject = window.firebase;
+    payload.updatedAt = firebaseObject?.firestore?.FieldValue?.serverTimestamp ? firebaseObject.firestore.FieldValue.serverTimestamp() : new Date().toISOString();
+    return payload;
+  }
+
+  function saveRatingToFirestore(id, rating) {
+    const collection = syncState.firestoreEnabled ? firestoreCollection() : null;
+    if (!collection) return;
+    updateSyncStatus("Sincronizzazione in corso");
+    collection.doc(String(id)).set(firestorePayload(id, rating), { merge: true }).then(() => { syncState.lastSave = new Date().toISOString(); updateSyncStatus("Ultimo salvataggio riuscito"); renderDebug(); }).catch((error) => { updateSyncStatus("Salvato offline, sincronizzazione non riuscita", error); renderDebug(); });
   }
 
   function openPlayer(player) {
@@ -385,6 +457,67 @@
     if (nodes.exportFeedback) nodes.exportFeedback.textContent = `Export creato: ${payload.length} squadre, ${exportedPlayers} giocatori valutati.${zeroRated ? " Alcune squadre selezionate non hanno giocatori valutati." : ""}`;
   }
 
+  function startFirestoreSync() {
+    if (!window.INAZUMA_FIREBASE_READY || !window.INAZUMA_FIRESTORE) { updateSyncStatus("Offline / solo localStorage"); return; }
+    updateSyncStatus("Connessione Firestore...");
+    const auth = window.INAZUMA_FIREBASE_AUTH;
+    const afterAuth = () => {
+      syncState.firestoreEnabled = true;
+      updateSyncStatus("Firestore connesso");
+      const collection = firestoreCollection();
+      if (!collection) return;
+      collection.get().then((snapshot) => {
+        let count = 0;
+        snapshot.forEach((doc) => { count += 1; mergeRatingRecord(doc.id, doc.data()); });
+        syncState.firestoreLoaded = count; persistRatings(); render();
+      }).catch((error) => updateSyncStatus("Errore sync", error));
+      collection.onSnapshot((snapshot) => {
+        let changed = false;
+        snapshot.docChanges().forEach((change) => { if (change.type !== "removed") changed = mergeRatingRecord(change.doc.id, change.doc.data()) || changed; });
+        syncState.firestoreLoaded = snapshot.size;
+        if (changed) { persistRatings(); render(); }
+      }, (error) => { updateSyncStatus("Errore sync", error); renderDebug(); });
+    };
+    if (auth && typeof auth.signInAnonymously === "function") {
+      auth.signInAnonymously().then((credential) => { syncState.authUid = credential?.user?.uid || auth.currentUser?.uid || ""; afterAuth(); }).catch((error) => { syncState.firestoreEnabled = false; updateSyncStatus("Offline / solo localStorage", error); renderDebug(); });
+    } else afterAuth();
+  }
+
+  function uploadLocalRatingsToFirestore() {
+    if (!syncState.firestoreEnabled || !firestoreCollection()) { updateSyncStatus("Firestore non connesso."); return; }
+    if (!confirm("Questa operazione caricherà online i rating locali salvati nel browser. Assicurati di aver esportato un backup ratings.json.")) return;
+    const localRatings = loadRatings();
+    const ids = Object.keys(localRatings);
+    updateSyncStatus("Sincronizzazione in corso");
+    Promise.all(ids.map((id) => firestoreCollection().doc(id).set(firestorePayload(id, localRatings[id]), { merge: true })))
+      .then(() => { updateSyncStatus(`Ultimo salvataggio riuscito: ${ids.length} rating caricati`); renderDebug(); })
+      .catch((error) => { updateSyncStatus("Errore sync", error); renderDebug(); });
+  }
+
+  function importRatingsJson(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const payload = JSON.parse(String(reader.result || "[]"));
+        if (!Array.isArray(payload)) throw new Error("ratings.json deve contenere un array");
+        let imported = 0; let existing = 0;
+        payload.forEach((record) => {
+          const id = String(record?.playerId || "");
+          if (!id) return;
+          if (ratings[id]) existing += 1;
+          if (!ratings[id] || shouldUseIncoming(ratings[id], record) || (!timestampValue(ratings[id].updatedAt) && !timestampValue(record.updatedAt) && confirm(`Il rating del giocatore ${id} esiste già. Vuoi sovrascriverlo?`))) {
+            ratings[id] = { ...normalizeRating(record), updatedAt: updatedAtString(record.updatedAt) || new Date().toISOString(), updatedBy: clean(record.updatedBy) || syncState.evaluatorName || "Utente" };
+            imported += 1;
+          }
+        });
+        persistRatings(); render(); updateSyncStatus(`Import completato: ${imported} rating importati, ${existing} già presenti. Alcuni rating erano già presenti. Sono stati mantenuti i più recenti dove possibile.`);
+      } catch (error) { updateSyncStatus("Errore import ratings.json", error); renderDebug(); }
+      if (nodes.importJson) nodes.importJson.value = "";
+    };
+    reader.readAsText(file);
+  }
+
   function render() {
     if (!nodes.debug || !nodes.teams || !nodes.players) return;
     document.body.classList.toggle("ratings-teams-collapsed", teamsCollapsed);
@@ -401,5 +534,9 @@
   nodes.exportClear?.addEventListener("click", () => { selectedExportTeamIds.clear(); renderSelectedTeamsExport(); });
   nodes.exportRatedOnly?.addEventListener("click", () => { selectedExportTeamIds.clear(); teams.filter((team) => teamSummary(team).ratedPlayers > 0).forEach((team) => selectedExportTeamIds.add(team.id)); renderSelectedTeamsExport(); });
   nodes.exportSelectedTeams?.addEventListener("click", exportSelectedTeamsRatingsJson);
-  globalThis.InazumaPlayerRatings = { render, playersForTeam, overallFor, categoryFor, starsFor, exportRatingsJson, exportTeamsRatedJson, exportSelectedTeamsRatingsJson };
+  if (nodes.evaluatorName) { nodes.evaluatorName.value = syncState.evaluatorName; nodes.evaluatorName.addEventListener("input", () => { syncState.evaluatorName = nodes.evaluatorName.value.trim(); localStorage.setItem(EVALUATOR_KEY, syncState.evaluatorName); renderDebug(); }); }
+  nodes.uploadFirestore?.addEventListener("click", uploadLocalRatingsToFirestore);
+  nodes.importJson?.addEventListener("change", () => importRatingsJson(nodes.importJson.files && nodes.importJson.files[0]));
+  startFirestoreSync();
+  globalThis.InazumaPlayerRatings = { render, playersForTeam, overallFor, categoryFor, starsFor, exportRatingsJson, exportTeamsRatedJson, exportSelectedTeamsRatingsJson, startFirestoreSync };
 })();

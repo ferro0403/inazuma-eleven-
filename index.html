@@ -80,10 +80,10 @@
 
     <section id="ratings-view" class="app-view manager" hidden>
       <div class="manager__heading">
-        <div><p class="eyebrow">Data check</p><h2>Player Ratings</h2><p>Read-only verification page for players and team links before rating tools are added.</p></div>
+        <div><p class="eyebrow">Player Ratings</p><h2>Player Ratings</h2><p>Valuta i giocatori, sincronizza opzionalmente i rating con Firestore ed esporta i risultati.</p></div>
       </div>
-      <details class="ratings-debug-details"><summary>Debug</summary><div id="ratings-debug" class="ratings-debug" aria-live="polite"></div></details>
-      <div class="manager__actions ratings-actions"><button id="export-ratings" class="button button--quiet" type="button">Export ratings.json</button><button id="export-rated-teams" class="button button--quiet" type="button">Export teams.rated.json</button></div>
+      <details class="ratings-debug-details"><summary>Debug / Sync</summary><div id="ratings-debug" class="ratings-debug" aria-live="polite"></div><div class="ratings-sync-tools"><button id="ratings-upload-firestore" class="button button--quiet" type="button">Carica rating locali su Firestore</button><label class="ratings-import-button"><span class="button button--quiet">Importa ratings.json</span><input id="ratings-import-json" type="file" accept="application/json,.json"></label></div></details>
+      <div class="manager__actions ratings-actions"><label class="ratings-evaluator"><span>Nome valutatore</span><input id="ratings-evaluator-name" type="text" placeholder="Utente"></label><span id="ratings-sync-status" class="ratings-sync-status">Stato sync: Offline / solo localStorage</span><button id="export-ratings" class="button button--quiet" type="button">Export ratings.json</button><button id="export-rated-teams" class="button button--quiet" type="button">Export teams.rated.json</button></div>
       <details class="ratings-selected-export"><summary>Export per squadre</summary>
         <div class="ratings-selected-export__actions"><button id="ratings-export-select-all" class="button button--quiet" type="button">Seleziona tutte</button><button id="ratings-export-clear" class="button button--quiet" type="button">Deseleziona tutte</button><button id="ratings-export-rated-only" class="button button--quiet" type="button">Solo squadre con almeno 1 giocatore valutato</button></div>
         <div id="ratings-export-team-list" class="ratings-export-team-list"></div>
@@ -188,6 +188,6 @@
   </dialog>
 
   <footer><div class="shell">Fan-made data browser. Character data and images belong to LEVEL5 Inc.</div></footer>
-  <script src="data/players.js"></script><script src="data/teams.js"></script><script src="team-store.js"></script><script src="tournament-store.js"></script><script src="full-team-championship-store.js"></script><script src="app.js"></script><script src="full-team-championships.js"></script><script src="player-ratings.js"></script>
+  <script src="data/players.js"></script><script src="data/teams.js"></script><script src="team-store.js"></script><script src="tournament-store.js"></script><script src="full-team-championship-store.js"></script><script src="app.js"></script><script src="full-team-championships.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script><script src="firebase-config.js"></script><script src="player-ratings.js"></script>
 </body>
 </html>
