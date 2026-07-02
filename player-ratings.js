@@ -297,9 +297,12 @@
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([text], { type: "application/json" })); link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 0);
   }
 
+  function firstValue(source, fields) {
+    return fields.map((field) => clean(source?.[field])).find(Boolean) || null;
+  }
+
   function firstImageUrl(source, fields) {
-    const value = fields.map((field) => clean(source?.[field])).find(Boolean);
-    return value || null;
+    return firstValue(source, fields);
   }
 
   function teamLogoUrl(team) {
@@ -310,9 +313,23 @@
     return firstImageUrl(player, ["portraitUrl", "portrait", "imageUrl", "avatar", "photoUrl", "pictureUrl"]);
   }
 
+  function normalizePlayerElement(value) {
+    const normalized = key(value);
+    if (!normalized) return null;
+    if (["albero", "wood", "forest", "tree", "grass"].includes(normalized)) return "Albero";
+    if (["fuoco", "fire", "flame"].includes(normalized)) return "Fuoco";
+    if (["montagna", "mountain", "earth", "rock"].includes(normalized)) return "Montagna";
+    if (["vento", "wind", "air"].includes(normalized)) return "Vento";
+    return null;
+  }
+
+  function playerElement(player) {
+    return normalizePlayerElement(firstValue(player, ["element", "type", "attribute", "nature", "affinity", "tipo", "elemento"]));
+  }
+
   function ratedPlayerPayload(player) {
     const rating = normalizeRating(ratings[playerId(player)]); const overall = overallFor(player, rating);
-    return { playerId: playerId(player), name: player.name || "", portraitUrl: playerPortraitUrl(player), position: player.position || player.role || "", ...Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, rating[stat]])), overall, category: categoryFor(overall) };
+    return { playerId: playerId(player), name: player.name || "", portraitUrl: playerPortraitUrl(player), position: player.position || player.role || "", element: playerElement(player), ...Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, rating[stat]])), overall, category: categoryFor(overall) };
   }
 
   function selectedTeamExportPayload(team) {

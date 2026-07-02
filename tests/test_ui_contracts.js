@@ -43,6 +43,13 @@ assert.match(ratings, /logoUrl: teamLogoUrl/);
 assert.match(ratings, /portraitUrl: playerPortraitUrl/);
 assert.match(ratings, /"crestUrl"/);
 assert.match(ratings, /"pictureUrl"/);
+assert.match(ratings, /element: playerElement/);
+assert.match(ratings, /"attribute"/);
+assert.match(ratings, /"elemento"/);
+assert.match(ratings, /return "Albero"/);
+assert.match(ratings, /return "Fuoco"/);
+assert.match(ratings, /return "Montagna"/);
+assert.match(ratings, /return "Vento"/);
 assert.match(ratings, /SALVA E PROSSIMO/);
 
 console.log("UI contract tests passed.");
