@@ -9,11 +9,11 @@
     ["defense", "Difesa"], ["speed", "Velocità"], ["grit", "Grinta"], ["save", "Parata"],
   ];
   const DEFAULT_STATS = Object.fromEntries(STAT_DEFS.map(([key]) => [key, 5]));
-  const WEIGHTS = {
-    FW: { attack: 32, control: 20, speed: 15, grit: 10, physical: 10, stamina: 8, defense: 5, save: 0 },
-    MF: { control: 24, stamina: 18, grit: 16, speed: 13, attack: 12, defense: 12, physical: 5, save: 0 },
-    DF: { defense: 32, physical: 18, grit: 15, stamina: 13, speed: 10, control: 7, attack: 5, save: 0 },
-    GK: { save: 50, grit: 15, physical: 12, defense: 8, control: 5, stamina: 5, speed: 3, attack: 2 },
+  const ROLE_WEIGHTS = {
+    FW: { attack: 50, control: 12, speed: 10, grit: 8, physical: 10, stamina: 8, defense: 2, save: 0 },
+    MF: { control: 40, stamina: 15, grit: 12, speed: 10, attack: 10, defense: 8, physical: 5, save: 0 },
+    DF: { defense: 50, physical: 15, grit: 10, stamina: 8, speed: 8, control: 5, attack: 4, save: 0 },
+    GK: { save: 70, grit: 10, physical: 8, defense: 5, control: 3, stamina: 2, speed: 2, attack: 0 },
   };
   const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
   const $ = (selector) => document.querySelector(selector);
@@ -73,7 +73,7 @@
   }
 
   function overallFor(player, rating) {
-    const weights = WEIGHTS[roleCode(player)] || WEIGHTS.MF;
+    const weights = ROLE_WEIGHTS[roleCode(player)] || ROLE_WEIGHTS.MF;
     const roleScore = STAT_DEFS.reduce((sum, [stat]) => sum + (clampStat(rating[stat]) * (weights[stat] || 0) / 100), 0);
     return Math.max(1, Math.min(99, Math.round(30 + ((roleScore - 1) * 69 / 9))));
   }

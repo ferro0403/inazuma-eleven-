@@ -52,4 +52,15 @@ assert.match(ratings, /return "Montagna"/);
 assert.match(ratings, /return "Vento"/);
 assert.match(ratings, /SALVA E PROSSIMO/);
 
+const weightsMatch = ratings.match(/const ROLE_WEIGHTS = (\{[\s\S]*?\n  \});/);
+assert.ok(weightsMatch, "ROLE_WEIGHTS must be declared");
+const ROLE_WEIGHTS = Function(`return (${weightsMatch[1]});`)();
+assert.equal(ROLE_WEIGHTS.FW.attack, 50);
+assert.equal(ROLE_WEIGHTS.MF.control, 40);
+assert.equal(ROLE_WEIGHTS.DF.defense, 50);
+assert.equal(ROLE_WEIGHTS.GK.save, 70);
+Object.entries(ROLE_WEIGHTS).forEach(([role, weights]) => {
+  assert.equal(Object.values(weights).reduce((sum, value) => sum + value, 0), 100, `${role} weights must sum to 100`);
+});
+
 console.log("UI contract tests passed.");
