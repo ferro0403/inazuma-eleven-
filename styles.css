@@ -1119,3 +1119,82 @@ dialog::backdrop { background: rgba(3,20,37,.7); backdrop-filter: blur(3px); }
 .ratings-import-button input {
   display: none;
 }
+
+.ratings-sync-panel {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(20, 35, 60, 0.1);
+  border-radius: 1rem;
+  box-shadow: 0 10px 24px rgba(20, 35, 60, 0.06);
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 0.85rem;
+  padding: 0.65rem;
+}
+
+.ratings-sync-main {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ratings-export-actions {
+  border-top: 1px solid rgba(20, 35, 60, 0.08);
+  margin-top: 0.2rem;
+  padding-top: 0.6rem;
+}
+
+.ratings-sync-status--online {
+  background: #e7f8ef;
+  border-color: #89d6a7;
+  color: #17663a;
+}
+
+.ratings-sync-status--pending {
+  background: #edf5ff;
+  border-color: #9cc7ff;
+  color: #245a9c;
+}
+
+.ratings-sync-status--offline {
+  background: #f1f3f5;
+  border-color: #c8ced6;
+  color: #4f5b67;
+}
+
+.ratings-sync-status--error {
+  background: #fff0f0;
+  border-color: #f0a0a0;
+  color: #a22020;
+}
+
+.ratings-sync-count {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.ratings-debug-details {
+  margin: 0;
+}
+
+.ratings-debug-details > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+@media (max-width: 700px) {
+  .ratings-sync-main,
+  .ratings-evaluator {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ratings-sync-main .button,
+  .ratings-import-button,
+  .ratings-import-button .button,
+  .ratings-evaluator input {
+    width: 100%;
+  }
+}
