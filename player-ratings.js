@@ -31,7 +31,7 @@
   let playerSearch = "";
   let statusFilter = "all";
   let ratings = loadRatings();
-  let syncState = { status: "Offline / solo localStorage", firestoreEnabled: false, firestoreLoaded: 0, authUid: "", lastError: "", lastSave: "", evaluatorName: localStorage.getItem(EVALUATOR_KEY) || "", firebaseSdkLoaded: false, firebaseReady: false, authAvailable: false, firestoreAvailable: false, authStatus: "in attesa", listenerActive: false, offlineCause: "" };
+  let syncState = { status: "Offline / solo localStorage", firestoreEnabled: false, firestoreConnected: false, syncEnabled: false, firestoreLoaded: 0, authUid: "", lastError: "", lastSave: "", evaluatorName: localStorage.getItem(EVALUATOR_KEY) || "", firebaseSdkLoaded: false, firebaseReady: false, authAvailable: false, firestoreAvailable: false, authStatus: "in attesa", listenerActive: false, offlineCause: "", uploadInProgress: false, uploadDisabledReason: "Firestore non pronto", unsubscribeFirestore: null };
   let firestoreSyncStarted = false;
   let completionMessage = "";
   let teamsCollapsed = false;
@@ -73,7 +73,7 @@
 
   function mergeRatingRecord(playerIdValue, record) {
     const id = String(playerIdValue || record?.playerId || "");
-    if (!id || !record) return false;
+    if (!id || !record || !playerById.has(id)) return false;
     const normalized = normalizeRating(record);
     if (record.updatedBy) normalized.updatedBy = clean(record.updatedBy);
     if (shouldUseIncoming(ratings[id], normalized)) { ratings[id] = normalized; return true; }
@@ -114,18 +114,45 @@
     return errorText(error) || "Offline / solo localStorage";
   }
 
-  function updateSyncStatus(status, error) {
+  function currentFirestoreUser() {
+    const auth = window.INAZUMA_FIREBASE_AUTH;
+    return auth?.currentUser || null;
+  }
+
+  function canUseFirestore() {
+    return Boolean(window.INAZUMA_FIRESTORE && currentFirestoreUser());
+  }
+
+  function uploadDisabledReason() {
+    if (syncState.uploadInProgress) return "Upload già in corso";
+    if (!window.INAZUMA_FIRESTORE) return "Firestore non esiste";
+    if (!window.INAZUMA_FIREBASE_AUTH) return "Auth non esiste";
+    if (!currentFirestoreUser()) return "currentUser non esiste";
+    return "";
+  }
+
+  function refreshConnectedState() {
     refreshFirebaseDiagnostics();
-    syncState.status = status;
+    const user = currentFirestoreUser();
+    syncState.authUid = user?.uid || syncState.authUid || "";
+    syncState.firestoreConnected = Boolean(window.INAZUMA_FIREBASE_READY && window.INAZUMA_FIRESTORE && window.INAZUMA_FIREBASE_AUTH && user);
+    syncState.syncEnabled = syncState.firestoreConnected;
+    syncState.firestoreEnabled = syncState.firestoreConnected;
+    syncState.uploadDisabledReason = uploadDisabledReason();
+  }
+
+  function updateSyncStatus(status, error) {
+    refreshConnectedState();
+    syncState.status = syncState.firestoreConnected && status === "Offline / solo localStorage" ? "Firestore connesso" : status;
     if (error) { syncState.lastError = errorText(error); syncState.offlineCause = readableOfflineCause(error); }
     if (status.includes("Offline") && !syncState.offlineCause) syncState.offlineCause = readableOfflineCause(error);
     if (!error && (status.includes("connesso") || status.includes("riuscito"))) { syncState.lastError = ""; syncState.offlineCause = ""; }
     if (nodes.syncStatus) {
-      nodes.syncStatus.textContent = `Stato sync: ${status}`;
-      nodes.syncStatus.className = `ratings-sync-status ${syncClass(status)}`;
+      nodes.syncStatus.textContent = `Stato sync: ${syncState.status}`;
+      nodes.syncStatus.className = `ratings-sync-status ${syncClass(syncState.status)}`;
     }
     if (nodes.syncCount) nodes.syncCount.textContent = `Rating salvati: ${Object.keys(ratings).length.toLocaleString()}`;
-    if (nodes.uploadFirestore) nodes.uploadFirestore.disabled = !syncState.firestoreEnabled;
+    if (nodes.uploadFirestore) nodes.uploadFirestore.disabled = Boolean(syncState.uploadDisabledReason);
   }
 
   function firestoreCollection() {
@@ -267,11 +294,17 @@
       stat("Firebase ready", String(syncState.firebaseReady)),
       stat("Auth disponibile", syncState.authAvailable ? "sì" : "no"),
       stat("Firestore disponibile", syncState.firestoreAvailable ? "sì" : "no"),
+      stat("currentUser UID", currentFirestoreUser()?.uid || "—"),
+      stat("firestoreConnected", String(syncState.firestoreConnected)),
+      stat("syncEnabled", String(syncState.syncEnabled)),
+      stat("upload button disabled", String(Boolean(syncState.uploadDisabledReason))),
+      stat("motivo pulsante disabilitato", syncState.uploadDisabledReason || "—"),
       stat("Login anonimo", syncState.authStatus),
       stat("UID utente anonimo", syncState.authUid || "—"),
       stat("Listener Firestore", syncState.listenerActive ? "attivo" : "non attivo"),
       stat("Rating in localStorage", Object.keys(loadRatings()).length.toLocaleString()),
       stat("Rating caricati da Firestore", syncState.firestoreLoaded.toLocaleString()),
+      stat("Ultima scrittura Firestore", syncState.lastSave || "—"),
       stat("Ultimo errore sync", syncState.lastError || syncState.offlineCause || "—"),
       stat("Fonte dati giocatori", "globalThis.INAZUMA_PLAYERS"), stat("Fonte dati squadre", "globalThis.INAZUMA_TEAMS"),
       stat("Squadra selezionata", team ? `${team.name || "—"} / ${team.id || "—"}` : "—"),
@@ -365,10 +398,12 @@
   }
 
   function saveRatingToFirestore(id, rating) {
-    const collection = syncState.firestoreEnabled ? firestoreCollection() : null;
-    if (!collection) return;
+    const db = window.INAZUMA_FIRESTORE;
+    const user = currentFirestoreUser();
+    const collection = db && user ? firestoreCollection() : null;
+    if (!collection) { updateSyncStatus("Offline / solo localStorage", new Error("Firestore non pronto")); return; }
     updateSyncStatus("Sincronizzazione in corso");
-    collection.doc(String(id)).set(firestorePayload(id, rating), { merge: true }).then(() => { syncState.lastSave = new Date().toISOString(); updateSyncStatus("Ultimo salvataggio riuscito"); renderDebug(); }).catch((error) => { updateSyncStatus("Salvato offline, sincronizzazione non riuscita", error); renderDebug(); });
+    collection.doc(String(id)).set(firestorePayload(id, rating), { merge: true }).then(() => { syncState.lastSave = "Ultima scrittura Firestore: ok"; updateSyncStatus("Firestore connesso"); renderDebug(); }).catch((error) => { updateSyncStatus("Salvato offline, sincronizzazione non riuscita", error); renderDebug(); });
   }
 
   function openPlayer(player) {
@@ -505,27 +540,30 @@
   }
 
   function startFirestoreSync() {
-    refreshFirebaseDiagnostics();
-    if (firestoreSyncStarted) { renderDebug(); return; }
+    refreshConnectedState();
+    if (firestoreSyncStarted && syncState.listenerActive) { updateSyncStatus("Firestore connesso"); renderDebug(); return; }
     if (!syncState.firebaseSdkLoaded) { updateSyncStatus("Offline / solo localStorage", new Error("Firebase SDK non caricato")); renderDebug(); return; }
     if (!syncState.authAvailable) { updateSyncStatus("Offline / solo localStorage", new Error("Auth Firebase non disponibile")); renderDebug(); return; }
     if (!syncState.firestoreAvailable) { updateSyncStatus("Offline / solo localStorage", new Error("Firestore non disponibile")); renderDebug(); return; }
-    firestoreSyncStarted = true;
-    updateSyncStatus("Connessione Firestore...");
     const auth = window.INAZUMA_FIREBASE_AUTH;
     const connectFirestore = (user) => {
-      syncState.authUid = user?.uid || auth.currentUser?.uid || "";
-      syncState.authStatus = syncState.authUid ? "ok" : "ok / UID non disponibile";
+      if (!user) { updateSyncStatus("Offline / solo localStorage", new Error("currentUser non esiste")); renderDebug(); return; }
+      syncState.authUid = user.uid || "";
+      syncState.authStatus = "ok";
+      syncState.firestoreConnected = true;
+      syncState.syncEnabled = true;
       syncState.firestoreEnabled = true;
+      firestoreSyncStarted = true;
       updateSyncStatus("Firestore connesso");
       const collection = firestoreCollection();
-      if (!collection) { syncState.firestoreEnabled = false; firestoreSyncStarted = false; updateSyncStatus("Errore sync", new Error("Firestore non disponibile")); renderDebug(); return; }
+      if (!collection) { syncState.firestoreConnected = false; syncState.syncEnabled = false; syncState.firestoreEnabled = false; firestoreSyncStarted = false; updateSyncStatus("Errore sync", new Error("Firestore non disponibile")); renderDebug(); return; }
       collection.get().then((snapshot) => {
         let count = 0;
         snapshot.forEach((doc) => { count += 1; mergeRatingRecord(doc.id, doc.data()); });
         syncState.firestoreLoaded = count; persistRatings(); updateSyncStatus("Firestore connesso"); render();
       }).catch((error) => { updateSyncStatus("Errore sync", error); renderDebug(); });
-      collection.onSnapshot((snapshot) => {
+      if (syncState.unsubscribeFirestore) syncState.unsubscribeFirestore();
+      syncState.unsubscribeFirestore = collection.onSnapshot((snapshot) => {
         syncState.listenerActive = true;
         let changed = false;
         snapshot.docChanges().forEach((change) => { if (change.type !== "removed") changed = mergeRatingRecord(change.doc.id, change.doc.data()) || changed; });
@@ -536,21 +574,31 @@
     };
     if (auth.currentUser) { connectFirestore(auth.currentUser); return; }
     syncState.authStatus = "in attesa";
-    auth.signInAnonymously().then((credential) => connectFirestore(credential?.user)).catch((error) => {
-      syncState.firestoreEnabled = false; firestoreSyncStarted = false; syncState.authStatus = "errore";
+    firestoreSyncStarted = true;
+    updateSyncStatus("Connessione Firestore...");
+    if (typeof auth.onAuthStateChanged === "function") {
+      auth.onAuthStateChanged((user) => { if (user && !syncState.firestoreConnected) connectFirestore(user); });
+    }
+    auth.signInAnonymously().then((credential) => connectFirestore(credential?.user || auth.currentUser)).catch((error) => {
+      syncState.firestoreConnected = false; syncState.syncEnabled = false; syncState.firestoreEnabled = false; firestoreSyncStarted = false; syncState.authStatus = "errore";
       updateSyncStatus("Offline / solo localStorage", error); renderDebug();
     });
   }
 
   function uploadLocalRatingsToFirestore() {
-    if (!syncState.firestoreEnabled || !firestoreCollection()) { updateSyncStatus("Firestore non connesso."); return; }
+    const db = window.INAZUMA_FIRESTORE;
+    const auth = window.INAZUMA_FIREBASE_AUTH;
+    const user = auth?.currentUser;
+    if (!db || !user) { updateSyncStatus("Firestore non pronto", new Error("Firestore non pronto")); return; }
     if (!confirm("Questa operazione caricherà online i rating locali salvati nel browser. Assicurati di aver esportato un backup ratings.json.")) return;
-    const localRatings = loadRatings();
-    const ids = Object.keys(localRatings);
+    const collection = firestoreCollection();
+    const localRatings = { ...loadRatings(), ...ratings };
+    const ids = Object.keys(localRatings).filter((id) => playerById.has(String(id)) && localRatings[id]?.updatedAt);
+    syncState.uploadInProgress = true;
     updateSyncStatus("Sincronizzazione in corso");
-    Promise.all(ids.map((id) => firestoreCollection().doc(id).set(firestorePayload(id, localRatings[id]), { merge: true })))
-      .then(() => { updateSyncStatus(`Ultimo salvataggio riuscito: ${ids.length} rating caricati`); renderDebug(); })
-      .catch((error) => { updateSyncStatus("Errore sync", error); renderDebug(); });
+    Promise.all(ids.map((id) => collection.doc(String(id)).set(firestorePayload(id, localRatings[id]), { merge: true })))
+      .then(() => { syncState.uploadInProgress = false; syncState.lastSave = `Ultima scrittura Firestore: ok (${ids.length} rating caricati)`; updateSyncStatus("Firestore connesso"); renderDebug(); })
+      .catch((error) => { syncState.uploadInProgress = false; updateSyncStatus("Errore sync", error); renderDebug(); });
   }
 
   function importRatingsJson(file) {
@@ -580,7 +628,7 @@
   function render() {
     if (!nodes.debug || !nodes.teams || !nodes.players) return;
     refreshFirebaseDiagnostics();
-    if (!firestoreSyncStarted && syncState.authAvailable && syncState.firestoreAvailable) startFirestoreSync();
+    if ((!firestoreSyncStarted || !syncState.firestoreConnected) && syncState.authAvailable && syncState.firestoreAvailable) startFirestoreSync();
     updateSyncStatus(syncState.status);
     document.body.classList.toggle("ratings-teams-collapsed", teamsCollapsed);
     if (nodes.toggleTeams) nodes.toggleTeams.textContent = teamsCollapsed ? "Mostra squadre" : "Nascondi squadre";
