@@ -78,6 +78,13 @@ assert.match(ratings, /return "Fuoco"/);
 assert.match(ratings, /return "Montagna"/);
 assert.match(ratings, /return "Vento"/);
 assert.match(ratings, /SALVA E PROSSIMO/);
+assert.match(ratings, /← Precedente/);
+assert.match(ratings, /Successivo →/);
+assert.match(ratings, /navigatePlayer/);
+assert.match(ratings, /Rimuovi valutazione/);
+assert.match(ratings, /delete ratings\[id\]/);
+assert.match(ratings, /\.delete\(\)/);
+assert.match(ratings, /Number\.isFinite\(numeric\)/);
 
 const weightsMatch = ratings.match(/const ROLE_WEIGHTS = (\{[\s\S]*?\n  \});/);
 assert.ok(weightsMatch, "ROLE_WEIGHTS must be declared");

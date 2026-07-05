@@ -28,6 +28,8 @@
   const playerById = new Map(players.map((player) => [String(player.id), player]));
   let selectedTeamId = teams[0]?.id || "";
   let selectedPlayerId = "";
+  let editorDraft = null;
+  let editorDraftPlayerId = "";
   let playerSearch = "";
   let statusFilter = "all";
   let ratings = loadRatings();
@@ -40,7 +42,7 @@
   const clean = (value) => String(value ?? "").trim();
   const key = (value) => clean(value).toLocaleLowerCase();
   const unique = (values) => [...new Set(values.filter(Boolean))];
-  const clampStat = (value) => Math.max(1, Math.min(10, Number(value) || 5));
+  const clampStat = (value) => { const numeric = Number(value); return Math.max(1, Math.min(10, Number.isFinite(numeric) ? numeric : 5)); };
   const playerId = (player) => String(player?.id ?? "");
 
   function loadRatings() {
@@ -178,6 +180,16 @@
   function draftRating(player) {
     const saved = ratings[playerId(player)];
     return saved ? normalizeRating(saved) : { ...DEFAULT_STATS, updatedAt: "" };
+  }
+
+  function resetEditorDraft(player) {
+    editorDraftPlayerId = playerId(player);
+    editorDraft = { ...draftRating(player) };
+  }
+
+  function currentEditorRating(player) {
+    if (playerId(player) !== editorDraftPlayerId || !editorDraft) resetEditorDraft(player);
+    return editorDraft;
   }
 
   function isRated(player) {
@@ -407,12 +419,12 @@
   }
 
   function openPlayer(player) {
-    selectedPlayerId = playerId(player); completionMessage = ""; renderEditor(player); renderPlayers(); renderDebug(); renderProgress(); renderTeams();
+    selectedPlayerId = playerId(player); completionMessage = ""; resetEditorDraft(player); renderEditor(player); renderPlayers(); renderDebug(); renderProgress(); renderTeams();
   }
 
   function renderEditor(player = playerById.get(selectedPlayerId)) {
     if (!player) { nodes.editor.hidden = true; nodes.editor.replaceChildren(); return; }
-    const team = selectedTeam(); const rating = draftRating(player); const overall = overallFor(player, rating); const category = categoryFor(overall); const rated = isRated(player);
+    const team = selectedTeam(); const rating = currentEditorRating(player); const overall = overallFor(player, rating); const category = categoryFor(overall); const rated = isRated(player);
     nodes.editor.hidden = false;
     const card = document.createElement("article"); card.className = "ratings-editor-card";
     const header = document.createElement("header");
@@ -428,22 +440,54 @@
       const minus = document.createElement("button"); minus.type = "button"; minus.textContent = "-";
       const value = document.createElement("span"); value.textContent = rating[stat];
       const plus = document.createElement("button"); plus.type = "button"; plus.textContent = "+";
-      const change = (delta) => { rating[stat] = clampStat(rating[stat] + delta); saveRating(player, rating); render(); renderEditor(player); };
+      const change = (delta) => { rating[stat] = clampStat(Number(rating[stat]) + delta); editorDraft = { ...rating }; renderEditor(player); };
       minus.addEventListener("click", () => change(-1)); plus.addEventListener("click", () => change(1));
       row.append(title, minus, value, plus); controls.append(row);
     });
     const actions = document.createElement("div"); actions.className = "ratings-editor-actions";
+    const previousPlayer = document.createElement("button"); previousPlayer.type = "button"; previousPlayer.className = "button button--quiet"; previousPlayer.textContent = "← Precedente"; previousPlayer.disabled = !adjacentPlayer(player, -1); previousPlayer.addEventListener("click", () => navigatePlayer(player, -1));
     const next = document.createElement("button"); next.type = "button"; next.className = "button ratings-save-next"; next.textContent = "SALVA E PROSSIMO"; next.addEventListener("click", () => saveAndNext(player));
-    const back = document.createElement("button"); back.type = "button"; back.className = "button button--quiet"; back.textContent = "Torna alla squadra"; back.addEventListener("click", () => { selectedPlayerId = ""; completionMessage = ""; render(); });
-    actions.append(next, back); card.append(controls, actions);
+    const nextPlayer = document.createElement("button"); nextPlayer.type = "button"; nextPlayer.className = "button button--quiet"; nextPlayer.textContent = "Successivo →"; nextPlayer.disabled = !adjacentPlayer(player, 1); nextPlayer.addEventListener("click", () => navigatePlayer(player, 1));
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "button button--danger ratings-remove-rating"; remove.textContent = "Rimuovi valutazione"; remove.disabled = !rated; remove.title = rated ? "Rimuovi la valutazione salvata" : "Nessuna valutazione salvata da rimuovere"; remove.addEventListener("click", () => removeRating(player));
+    const back = document.createElement("button"); back.type = "button"; back.className = "button button--quiet"; back.textContent = "Torna alla squadra"; back.addEventListener("click", () => { selectedPlayerId = ""; editorDraft = null; editorDraftPlayerId = ""; completionMessage = ""; render(); });
+    actions.append(previousPlayer, next, nextPlayer, remove, back); card.append(controls, actions);
     if (completionMessage) card.append(Object.assign(document.createElement("p"), { className: "ratings-complete", textContent: completionMessage }));
     nodes.editor.replaceChildren(card);
   }
 
+  function adjacentPlayer(player, direction) {
+    const roster = filteredRoster();
+    const index = roster.findIndex((item) => playerId(item) === playerId(player));
+    return index >= 0 ? roster[index + direction] : null;
+  }
+
+  function navigatePlayer(player, direction) {
+    const target = adjacentPlayer(player, direction);
+    if (!target) return;
+    selectedPlayerId = playerId(target);
+    completionMessage = "";
+    resetEditorDraft(target);
+    render();
+  }
+
+  function removeRating(player) {
+    const id = playerId(player);
+    if (!ratings[id]) return;
+    if (!confirm("Vuoi rimuovere la valutazione di questo giocatore?")) return;
+    delete ratings[id];
+    persistRatings();
+    resetEditorDraft(player);
+    const collection = window.INAZUMA_FIRESTORE && currentFirestoreUser() ? firestoreCollection() : null;
+    if (collection) {
+      collection.doc(id).delete().then(() => { syncState.lastSave = "Valutazione rimossa da Firestore"; updateSyncStatus("Firestore connesso"); renderDebug(); }).catch((error) => { updateSyncStatus("Errore sync", error); renderDebug(); });
+    }
+    render();
+  }
+
   function saveAndNext(player) {
-    saveRating(player, draftRating(player));
+    saveRating(player, currentEditorRating(player));
     const roster = selectedRoster(); const index = roster.findIndex((item) => playerId(item) === playerId(player)); const next = roster[index + 1];
-    if (next) { selectedPlayerId = playerId(next); completionMessage = ""; render(); renderEditor(next); }
+    if (next) { selectedPlayerId = playerId(next); completionMessage = ""; resetEditorDraft(next); render(); renderEditor(next); }
     else { completionMessage = "Squadra completata"; render(); renderEditor(player); }
   }
 
@@ -566,7 +610,7 @@
       syncState.unsubscribeFirestore = collection.onSnapshot((snapshot) => {
         syncState.listenerActive = true;
         let changed = false;
-        snapshot.docChanges().forEach((change) => { if (change.type !== "removed") changed = mergeRatingRecord(change.doc.id, change.doc.data()) || changed; });
+        snapshot.docChanges().forEach((change) => { if (change.type === "removed" && playerById.has(String(change.doc.id))) { delete ratings[String(change.doc.id)]; changed = true; } else if (change.type !== "removed") changed = mergeRatingRecord(change.doc.id, change.doc.data()) || changed; });
         syncState.firestoreLoaded = snapshot.size;
         updateSyncStatus("Firestore connesso");
         if (changed) { persistRatings(); render(); } else renderDebug();
