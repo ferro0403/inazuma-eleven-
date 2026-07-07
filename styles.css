@@ -1198,3 +1198,32 @@ dialog::backdrop { background: rgba(3,20,37,.7); backdrop-filter: blur(3px); }
     width: 100%;
   }
 }
+
+/* Custom Players */
+.custom-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .85fr); gap: 24px; margin-top: 26px; align-items: start; }
+.custom-form, .custom-player-card, .custom-preview { border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 4px 14px rgba(21,48,76,.05); }
+.custom-form { padding: 22px; }
+.custom-generated-id { margin: 0 0 12px; color: var(--blue); font-size: .72rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.custom-preview { margin: 0 0 16px; padding: 14px; }
+.custom-preview .player-card { max-width: 320px; margin-inline: auto; }
+.custom-player-list { display: grid; gap: 12px; }
+.custom-player-card { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px; }
+.custom-player-card > img { width: 76px; height: 76px; object-fit: contain; border-radius: 10px; background: radial-gradient(circle at 50% 60%, #e9f4fb, #dce6ee); }
+.custom-player-card strong { display: block; overflow: hidden; font: 800 1.35rem/1 "Barlow Condensed"; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.custom-player-card small { display: block; color: var(--muted); line-height: 1.45; }
+.custom-badge { display: inline-flex; margin-left: 4px; padding: 2px 6px; border-radius: 999px; color: #fff; background: #7c3aed; font-size: .55rem; letter-spacing: .08em; vertical-align: middle; }
+#custom-teams { min-height: 150px; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: #f9fbfd; }
+.ratings-import-button input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+
+@media (max-width: 860px) {
+  .custom-layout { grid-template-columns: 1fr; }
+  .view-tabs { overflow-x: auto; }
+  .view-tab { flex: 0 0 auto; }
+}
+@media (max-width: 560px) {
+  .custom-form .form-grid { grid-template-columns: 1fr; }
+  .custom-form .form-wide { grid-column: auto; }
+  .custom-player-card { grid-template-columns: 64px 1fr; }
+  .custom-player-card > img { width: 64px; height: 64px; }
+  .custom-player-card .card-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; }
+}

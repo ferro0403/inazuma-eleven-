@@ -1,7 +1,10 @@
 (() => {
   "use strict";
 
-  const players = Array.isArray(globalThis.INAZUMA_PLAYERS) ? globalThis.INAZUMA_PLAYERS : [];
+  const officialPlayers = Array.isArray(globalThis.INAZUMA_PLAYERS) ? globalThis.INAZUMA_PLAYERS : [];
+  const CustomPlayers = globalThis.InazumaCustomPlayers;
+  let customPlayers = CustomPlayers?.load(localStorage) || [];
+  let players = [...officialPlayers, ...customPlayers];
   const seeds = Array.isArray(globalThis.INAZUMA_TEAMS) ? globalThis.INAZUMA_TEAMS : [];
   const Store = globalThis.InazumaTeamStore;
   const Tournaments = globalThis.InazumaTournamentStore;
@@ -10,12 +13,12 @@
   const state = { search: "", team: "", position: "", element: "", page: 1, teamSearch: "", selectedTeams: new Set(), editingTeam: null, editingTournament: null, tournamentDraft: { teamId: "", playerIds: [], editIndex: null } };
   const elementClass = { Fire: "fire", Forest: "forest", Wind: "wind", Mountain: "mountain" };
   const elementSymbol = { Fire: "◆", Forest: "✦", Wind: "➶", Mountain: "▲" };
-  let teams = Store.hydrate(players, seeds, Store.load(localStorage));
+  let teams = Store.hydrate(officialPlayers, seeds, Store.load(localStorage));
   let tournaments = Tournaments.load(localStorage);
 
   const $ = (selector) => document.querySelector(selector);
   const nodes = {
-    views: { players: $("#players-view"), teams: $("#teams-view"), tournaments: $("#tournaments-view"), championships: $("#championships-view"), ratings: $("#ratings-view") }, tabs: [...document.querySelectorAll(".view-tab")],
+    views: { players: $("#players-view"), teams: $("#teams-view"), tournaments: $("#tournaments-view"), championships: $("#championships-view"), ratings: $("#ratings-view"), custom: $("#custom-view") }, tabs: [...document.querySelectorAll(".view-tab")],
     search: $("#search"), team: $("#team-filter"), position: $("#position-filter"), element: $("#element-filter"), reset: $("#reset-filters"), emptyReset: $("#empty-reset"),
     grid: $("#player-grid"), empty: $("#empty-state"), pagination: $("#pagination"), count: $("#result-count"), total: $("#total-count"),
     teamGrid: $("#team-grid"), teamCount: $("#team-count"), teamSearch: $("#team-search"), createTeam: $("#create-team"), mergeTeams: $("#merge-teams"), exportTeams: $("#export-teams"),
@@ -23,16 +26,19 @@
     addPlayer: $("#add-player"), addPlayerButton: $("#add-player-button"), rosterList: $("#roster-list"), rosterCount: $("#roster-count"),
     mergeDialog: $("#merge-dialog"), mergeSummary: $("#merge-summary"), mergeTarget: $("#merge-target"), confirmMerge: $("#confirm-merge"),
     tournamentGrid: $("#tournament-grid"), tournamentCount: $("#tournament-count"), createTournament: $("#create-tournament"), exportTournaments: $("#export-tournaments"),
+    customForm: $("#custom-player-form"), customEditId: $("#custom-edit-id"), customGeneratedId: $("#custom-generated-id"), customFirstName: $("#custom-first-name"), customLastName: $("#custom-last-name"), customDisplayName: $("#custom-display-name"), customPosition: $("#custom-position"), customElement: $("#custom-element"), customPortrait: $("#custom-portrait"), customTeams: $("#custom-teams"), customNotes: $("#custom-notes"), customPreview: $("#custom-preview"), customFeedback: $("#custom-feedback"), customList: $("#custom-player-list"), customCancel: $("#custom-cancel-edit"), customExport: $("#export-custom-players"), customImport: $("#import-custom-players"),
     tournamentDialog: $("#tournament-dialog"), tournamentForm: $("#tournament-form"), tournamentTitle: $("#tournament-title"), tournamentId: $("#tournament-id"), tournamentName: $("#tournament-name"), tournamentTeamSearch: $("#tournament-team-search"), tournamentTeamCards: $("#tournament-team-cards"), addTournamentTeam: $("#add-tournament-team"), tournamentPicker: $("#tournament-player-picker"), tournamentPickerMessage: $("#tournament-picker-message"), tournamentPanels: $("#tournament-team-panels"), tournamentErrors: $("#tournament-errors"), deleteTournament: $("#delete-tournament"),
   };
 
   const uniqueSorted = (values) => [...new Set(values.filter(Boolean))].sort(collator.compare);
-  const playerById = new Map(players.map((player) => [Number(player.id), player]));
+  let playerById = new Map(players.map((player) => [String(player.id), player]));
   const teamById = () => new Map(teams.map((team) => [team.id, team]));
   const persist = () => Store.save(localStorage, teams);
   const persistTournaments = () => Tournaments.save(localStorage, tournaments);
-  const teamPlayers = (team) => team.playerIds.map((id) => playerById.get(Number(id))).filter(Boolean).sort((a, b) => collator.compare(a.name, b.name));
-  const teamsForPlayer = (playerId) => teams.filter((team) => team.playerIds.includes(Number(playerId)));
+  const playerNumericId = (player) => Number(player?.id);
+  function refreshPlayersCache() { customPlayers = CustomPlayers?.load(localStorage) || []; players = [...officialPlayers, ...customPlayers]; playerById = new Map(players.map((player) => [String(player.id), player])); }
+  const teamPlayers = (team) => { const official = team.playerIds.map((id) => playerById.get(String(id))).filter(Boolean); const custom = CustomPlayers?.customPlayersForTeam(team, customPlayers) || []; return [...official, ...custom].sort((a, b) => collator.compare(a.name, b.name)); };
+  const teamsForPlayer = (player) => teams.filter((team) => { const numeric = playerNumericId(player); return (Number.isFinite(numeric) && team.playerIds.includes(numeric)) || CustomPlayers?.isPlayerInTeam(player, team); });
 
   function logo(team, className = "team-logo") {
     const box = document.createElement("span");
@@ -52,7 +58,8 @@
     if (view === "teams") renderTeams();
     else if (view === "tournaments") renderTournaments();
     else if (view === "championships") globalThis.InazumaFullTeamChampionships?.render();
-    else if (view === "ratings") globalThis.InazumaPlayerRatings?.render();
+    else if (view === "ratings") { globalThis.InazumaPlayerRatings?.refresh?.(); globalThis.InazumaPlayerRatings?.render?.(); }
+    else if (view === "custom") renderCustomPlayers();
     else renderPlayers();
   }
 
@@ -67,9 +74,9 @@
     const needle = state.search.trim().toLocaleLowerCase();
     const selected = teamById().get(state.team);
     return players.filter((player) => {
-      const searchable = `${player.name || ""} ${player.nickname || ""}`.toLocaleLowerCase();
+      const searchable = `${player.id || ""} ${player.playerId || ""} ${player.name || ""} ${player.firstName || ""} ${player.lastName || ""} ${player.displayName || ""} ${player.nickname || ""} ${player.position || ""} ${player.element || ""} ${teamsForPlayer(player).map((team) => team.name).join(" ")}`.toLocaleLowerCase();
       return (!needle || searchable.includes(needle))
-        && (!selected || selected.playerIds.includes(Number(player.id)))
+        && (!selected || teamsForPlayer(player).some((team) => team.id === selected.id))
         && (!state.position || player.position === state.position)
         && (!state.element || player.element === state.element);
     });
@@ -78,14 +85,14 @@
   function playerCard(player) {
     const article = document.createElement("article"); article.className = "player-card";
     const portrait = document.createElement("div"); portrait.className = "player-card__portrait";
-    const image = document.createElement("img"); image.src = player.imageUrl; image.alt = `${player.name} portrait`; image.loading = "lazy"; image.decoding = "async";
+    const image = document.createElement("img"); image.src = player.imageUrl || player.portraitUrl || ""; image.alt = `${player.name} portrait`; image.loading = "lazy"; image.decoding = "async";
     image.addEventListener("error", () => article.classList.add("player-card--image-error"), { once: true }); portrait.append(image);
     const position = document.createElement("span"); position.className = "position-badge"; position.textContent = player.position || "—"; portrait.append(position);
     const body = document.createElement("div"); body.className = "player-card__body";
-    const meta = document.createElement("p"); meta.className = "player-card__meta"; meta.textContent = `NO. ${player.id}`;
+    const meta = document.createElement("p"); meta.className = "player-card__meta"; meta.textContent = `NO. ${player.id}`; if (player.custom) { const badge = document.createElement("span"); badge.className = "custom-badge"; badge.textContent = "CUSTOM"; meta.append(" ", badge); }
     const name = document.createElement("h3"); name.textContent = player.name;
     const teamLine = document.createElement("div"); teamLine.className = "player-card__teams";
-    const memberships = teamsForPlayer(player.id);
+    const memberships = teamsForPlayer(player);
     if (memberships.length) memberships.forEach((team) => {
       const chip = document.createElement("button"); chip.type = "button"; chip.className = "team-chip"; chip.append(logo(team, "team-logo team-logo--tiny"), document.createTextNode(team.name));
       chip.addEventListener("click", () => openTeam(team.id)); teamLine.append(chip);
@@ -143,17 +150,17 @@
   function rosterRow(player) {
     const row = document.createElement("div"); row.className = "roster-row";
     const person = document.createElement("span"); person.className = "roster-person";
-    const image = document.createElement("img"); image.src = player.imageUrl; image.alt = ""; image.loading = "lazy"; person.append(image, document.createTextNode(player.name));
+    const image = document.createElement("img"); image.src = player.imageUrl || player.portraitUrl || ""; image.alt = ""; image.loading = "lazy"; person.append(image, document.createTextNode(player.name));
     const move = document.createElement("select"); move.setAttribute("aria-label", `Move ${player.name}`); move.add(new Option("Move to…", "")); teams.filter((team) => team.id !== state.editingTeam.id).forEach((team) => move.add(new Option(team.name, team.id)));
-    move.addEventListener("change", () => { if (!move.value) return; const target = teamById().get(move.value); Store.removePlayer(state.editingTeam, player.id); Store.addPlayer(target, player.id); persist(); renderRoster(); renderTeams(); refreshTeamFilter(); renderPlayers(); });
-    const remove = document.createElement("button"); remove.type = "button"; remove.className = "icon-button"; remove.textContent = "Remove"; remove.addEventListener("click", () => { Store.removePlayer(state.editingTeam, player.id); renderRoster(); });
+    move.addEventListener("change", () => { if (!move.value) return; const target = teamById().get(move.value); Store.removePlayer(state.editingTeam, Number(player.id)); Store.addPlayer(target, player.id); persist(); renderRoster(); renderTeams(); refreshTeamFilter(); renderPlayers(); });
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "icon-button"; remove.textContent = "Remove"; remove.addEventListener("click", () => { Store.removePlayer(state.editingTeam, Number(player.id)); renderRoster(); });
     row.append(person, move, remove); return row;
   }
 
   function renderRoster() {
     const roster = teamPlayers(state.editingTeam); nodes.rosterCount.textContent = `${roster.length} players`;
     const fragment = document.createDocumentFragment(); roster.forEach((player) => fragment.append(rosterRow(player))); nodes.rosterList.replaceChildren(fragment);
-    nodes.addPlayer.replaceChildren(new Option("Choose a player…", "")); players.filter((player) => !state.editingTeam.playerIds.includes(Number(player.id))).sort((a, b) => collator.compare(a.name, b.name)).forEach((player) => nodes.addPlayer.add(new Option(player.name, player.id)));
+    nodes.addPlayer.replaceChildren(new Option("Choose a player…", "")); players.filter((player) => !player.custom && !state.editingTeam.playerIds.includes(Number(player.id))).sort((a, b) => collator.compare(a.name, b.name)).forEach((player) => nodes.addPlayer.add(new Option(player.name, player.id)));
   }
 
   function openTeam(id) {
@@ -166,7 +173,7 @@
     if (!state.editingTeam || !nodes.teamName.value.trim()) return;
     const editingId = state.editingTeam.id;
     state.editingTeam.name = nodes.teamName.value.trim(); state.editingTeam.logoUrl = nodes.logoUrl.value.trim(); state.editingTeam.aliases = uniqueSorted(nodes.aliases.value.split("\n").map((value) => value.trim())); state.editingTeam.notes = nodes.notes.value.trim();
-    teams = Store.hydrate(players, [], teams);
+    teams = Store.hydrate(officialPlayers, [], teams);
     state.editingTeam = teamById().get(editingId) || null;
     state.selectedTeams = new Set([...state.selectedTeams].filter((id) => teamById().has(id)));
     teams.sort((a, b) => collator.compare(a.name, b.name)); persist(); refreshTeamFilter(); renderTeams(); renderPlayers();
@@ -231,14 +238,14 @@
 
   function playerPill(player) {
     const item = document.createElement("span"); item.className = "selected-player";
-    const img = document.createElement("img"); img.src = player.imageUrl; img.alt = ""; img.loading = "lazy";
+    const img = document.createElement("img"); img.src = player.imageUrl || player.portraitUrl || ""; img.alt = ""; img.loading = "lazy";
     item.append(img, document.createTextNode(player.name)); return item;
   }
 
   function rosterPanel(team) {
     const panel = document.createElement("div"); panel.className = "selectable-team-roster";
     teamPlayers(team).forEach((player) => panel.append(playerPill(player)));
-    if (!team.playerIds.length) panel.textContent = "No players assigned to this team yet.";
+    if (!teamPlayers(team).length) panel.textContent = "No players assigned to this team yet.";
     return panel;
   }
 
@@ -294,13 +301,13 @@
     const fragment = document.createDocumentFragment();
     if (team) teamPlayers(team).forEach((player) => {
       const label = document.createElement("label"); label.className = "tournament-player";
-      const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = state.tournamentDraft.playerIds.includes(Number(player.id));
+      const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = state.tournamentDraft.playerIds.includes(player.id);
       checkbox.addEventListener("change", () => {
-        if (checkbox.checked) state.tournamentDraft.playerIds = [...new Set([...state.tournamentDraft.playerIds, Number(player.id)])];
-        else state.tournamentDraft.playerIds = state.tournamentDraft.playerIds.filter((id) => id !== Number(player.id));
+        if (checkbox.checked) state.tournamentDraft.playerIds = [...new Set([...state.tournamentDraft.playerIds, player.id])];
+        else state.tournamentDraft.playerIds = state.tournamentDraft.playerIds.filter((id) => id !== player.id);
         renderTournamentPicker();
       });
-      const img = document.createElement("img"); img.src = player.imageUrl; img.alt = ""; img.loading = "lazy";
+      const img = document.createElement("img"); img.src = player.imageUrl || player.portraitUrl || ""; img.alt = ""; img.loading = "lazy";
       const text = document.createElement("span"); text.innerHTML = `<strong></strong><small></small>`;
       text.querySelector("strong").textContent = player.name; text.querySelector("small").textContent = `${player.position || "—"} · ${player.element || "Unknown"}`;
       label.append(checkbox, img, text); fragment.append(label);
@@ -324,10 +331,10 @@
     actions.append(edit, remove); header.append(title, actions); panel.append(header);
     const list = document.createElement("div"); list.className = "selected-player-list";
     entry.playerIds.forEach((playerId) => {
-      const player = playerById.get(Number(playerId));
+      const player = playerById.get(String(playerId));
       const item = document.createElement("span"); item.className = "selected-player";
       if (!player) { item.textContent = `Missing player ${playerId}`; list.append(item); return; }
-      const img = document.createElement("img"); img.src = player.imageUrl; img.alt = ""; img.loading = "lazy";
+      const img = document.createElement("img"); img.src = player.imageUrl || player.portraitUrl || ""; img.alt = ""; img.loading = "lazy";
       item.append(img, document.createTextNode(player.name)); list.append(item);
     });
     panel.append(list); return panel;
@@ -380,6 +387,55 @@
     renderTournamentEditor();
   }
 
+
+  function customTeamOptions() {
+    nodes.customTeams?.replaceChildren();
+    teams.forEach((team) => nodes.customTeams.add(new Option(team.name, team.id)));
+  }
+
+  function customFormData(id) {
+    const firstName = nodes.customFirstName.value.trim();
+    const lastName = nodes.customLastName.value.trim();
+    const displayName = nodes.customDisplayName.value.trim() || [firstName, lastName].filter(Boolean).join(" ");
+    const selectedTeams = [...nodes.customTeams.selectedOptions].map((option) => option.value);
+    const previous = customPlayers.find((player) => player.id === id) || {};
+    return CustomPlayers.normalize({ ...previous, id: id || CustomPlayers.nextId(customPlayers), firstName, lastName, displayName, name: displayName, position: nodes.customPosition.value, element: nodes.customElement.value, portraitUrl: customPortraitDataUrl || previous.portraitUrl || "", teams: selectedTeams, teamIds: selectedTeams, notes: nodes.customNotes.value }, { keepId: Boolean(id), existing: customPlayers.filter((player) => player.id !== id) });
+  }
+
+  let customPortraitDataUrl = "";
+  function renderCustomPreview() {
+    const id = nodes.customEditId.value || CustomPlayers.nextId(customPlayers);
+    const player = customFormData(id) || { id, name: "Anteprima", position: nodes.customPosition.value, element: nodes.customElement.value, portraitUrl: customPortraitDataUrl };
+    nodes.customGeneratedId.textContent = `ID generato automaticamente: ${id}`;
+    const card = playerCard(player); card.classList.add("custom-preview-card"); nodes.customPreview.replaceChildren(card);
+  }
+
+  function renderCustomPlayers() {
+    refreshPlayersCache(); customTeamOptions(); renderCustomPreview();
+    const fragment = document.createDocumentFragment();
+    customPlayers.forEach((player) => {
+      const card = document.createElement("article"); card.className = "custom-player-card";
+      const img = document.createElement("img"); img.src = player.portraitUrl || player.imageUrl || ""; img.alt = ""; img.loading = "lazy";
+      const info = document.createElement("div"); const title = document.createElement("strong"); title.textContent = player.name;
+      const meta = document.createElement("small"); const teamNames = teamsForPlayer(player).map((team) => team.name).join(", ") || "Svincolato"; meta.textContent = `${player.id} · ${player.position} · ${player.element} · ${teamNames}`;
+      info.append(title, meta);
+      const actions = document.createElement("div"); actions.className = "card-actions";
+      const edit = document.createElement("button"); edit.type = "button"; edit.className = "button"; edit.textContent = "Modifica"; edit.addEventListener("click", () => editCustomPlayer(player.id));
+      const del = document.createElement("button"); del.type = "button"; del.className = "button button--danger"; del.textContent = "Elimina"; del.addEventListener("click", () => deleteCustomPlayer(player.id));
+      actions.append(edit, del); card.append(img, info, actions); fragment.append(card);
+    });
+    if (!customPlayers.length) fragment.append(Object.assign(document.createElement("p"), { className: "picker-empty", textContent: "Nessun custom player creato." }));
+    nodes.customList.replaceChildren(fragment);
+  }
+
+  function resetCustomForm() { nodes.customForm.reset(); nodes.customEditId.value = ""; customPortraitDataUrl = ""; nodes.customCancel.hidden = true; renderCustomPlayers(); }
+  function saveCustomPlayer(event) { event.preventDefault(); const id = nodes.customEditId.value; const player = customFormData(id); if (!player) return; const index = customPlayers.findIndex((item) => item.id === player.id); if (index >= 0) customPlayers[index] = player; else customPlayers.push(player); CustomPlayers.save(customPlayers, localStorage); nodes.customFeedback.textContent = `Salvato ${player.name} (${player.id}).`; resetCustomForm(); refreshAllAfterCustomChange(); }
+  function editCustomPlayer(id) { const player = customPlayers.find((item) => item.id === id); if (!player) return; nodes.customEditId.value = player.id; nodes.customFirstName.value = player.firstName || ""; nodes.customLastName.value = player.lastName || ""; nodes.customDisplayName.value = player.displayName || player.name || ""; nodes.customPosition.value = player.position || "MF"; nodes.customElement.value = player.element || "Wind"; customPortraitDataUrl = player.portraitUrl || ""; nodes.customNotes.value = player.notes || ""; [...nodes.customTeams.options].forEach((option) => { option.selected = player.teamIds.includes(option.value) || player.teams.includes(option.value); }); nodes.customCancel.hidden = false; renderCustomPreview(); }
+  function deleteCustomPlayer(id) { const player = customPlayers.find((item) => item.id === id); if (!player || !confirm(`Eliminare ${player.name}?`)) return; customPlayers = customPlayers.filter((item) => item.id !== id); CustomPlayers.save(customPlayers, localStorage); CustomPlayers.removeRating(id, localStorage); resetCustomForm(); refreshAllAfterCustomChange(); }
+  function refreshAllAfterCustomChange() { refreshPlayersCache(); renderPlayers(); renderTeams(); globalThis.InazumaPlayerRatings?.refresh?.(); globalThis.InazumaPlayerRatings?.render?.(); globalThis.InazumaFullTeamChampionships?.render?.(); }
+  function exportCustomPlayers() { download("custom-players.json", JSON.stringify(customPlayers, null, 2)); }
+  function importCustomPlayers(file) { if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const payload = JSON.parse(String(reader.result || "[]")); const records = Array.isArray(payload) ? payload : []; let imported = 0; records.forEach((record) => { const normalized = CustomPlayers.normalize(record, { keepId: true, existing: customPlayers }); if (!normalized) return; if (customPlayers.some((p) => p.id === normalized.id) || officialPlayers.some((p) => String(p.id) === normalized.id || String(p.playerId) === normalized.id)) normalized.id = normalized.playerId = CustomPlayers.nextId(customPlayers); customPlayers.push(normalized); imported += 1; }); CustomPlayers.save(customPlayers, localStorage); nodes.customFeedback.textContent = `Import completato: ${imported} custom players.`; resetCustomForm(); refreshAllAfterCustomChange(); } catch (error) { nodes.customFeedback.textContent = `Import fallito: ${error.message}`; } nodes.customImport.value = ""; }; reader.readAsText(file); }
+
   nodes.tabs.forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
   uniqueSorted(players.map((player) => player.position)).forEach((value) => nodes.position.add(new Option(value, value)));
   uniqueSorted(players.map((player) => player.element)).forEach((value) => nodes.element.add(new Option(value, value)));
@@ -396,7 +452,8 @@
   nodes.tournamentTeamSearch.addEventListener("input", renderTournamentPicker);
   nodes.addTournamentTeam.addEventListener("click", confirmTournamentTeam);
   nodes.tournamentForm.addEventListener("submit", (event) => { if (event.submitter?.value === "default") saveTournament(); });
+  nodes.customForm?.addEventListener("submit", saveCustomPlayer); nodes.customCancel?.addEventListener("click", resetCustomForm); [nodes.customFirstName, nodes.customLastName, nodes.customDisplayName, nodes.customPosition, nodes.customElement, nodes.customNotes, nodes.customTeams].forEach((node) => node?.addEventListener("input", renderCustomPreview)); nodes.customTeams?.addEventListener("change", renderCustomPreview); nodes.customPortrait?.addEventListener("change", () => { const file = nodes.customPortrait.files?.[0]; if (!file) return; if (file.size > 1024 * 1024) nodes.customFeedback.textContent = "Attenzione: immagine grande, localStorage potrebbe riempirsi."; const reader = new FileReader(); reader.onload = () => { customPortraitDataUrl = String(reader.result || ""); renderCustomPreview(); }; reader.readAsDataURL(file); }); nodes.customExport?.addEventListener("click", exportCustomPlayers); nodes.customImport?.addEventListener("change", () => importCustomPlayers(nodes.customImport.files?.[0]));
   nodes.tournamentName.addEventListener("input", () => { if (!state.editingTournament) return; state.editingTournament.name = nodes.tournamentName.value; nodes.tournamentTitle.textContent = nodes.tournamentName.value || "Mini Tournament"; if (nodes.tournamentName.value.trim()) upsertEditingTournament(); });
   nodes.deleteTournament.addEventListener("click", () => { if (!state.editingTournament || !window.confirm(`Delete “${state.editingTournament.name}”?`)) return; tournaments = tournaments.filter((item) => item.id !== state.editingTournament.id); persistTournaments(); nodes.tournamentDialog.close(); renderTournaments(); });
-  renderPlayers(); renderTeams(); renderTournaments();
+  renderPlayers(); renderTeams(); renderTournaments(); renderCustomPlayers();
 })();

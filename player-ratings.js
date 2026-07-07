@@ -1,7 +1,10 @@
 (() => {
   "use strict";
 
-  const players = Array.isArray(globalThis.INAZUMA_PLAYERS) ? globalThis.INAZUMA_PLAYERS : [];
+  const officialPlayers = Array.isArray(globalThis.INAZUMA_PLAYERS) ? globalThis.INAZUMA_PLAYERS : [];
+  const CustomPlayers = globalThis.InazumaCustomPlayers;
+  let customPlayers = CustomPlayers?.load(localStorage) || [];
+  let players = [...officialPlayers, ...customPlayers];
   const teams = Array.isArray(globalThis.INAZUMA_TEAMS) ? globalThis.INAZUMA_TEAMS : [];
   const STORAGE_KEY = "inazumaPlayerRatings";
   const EVALUATOR_KEY = "inazumaPlayerRatingsEvaluator";
@@ -25,7 +28,7 @@
     exportTeamList: $("#ratings-export-team-list"), exportSelectAll: $("#ratings-export-select-all"), exportClear: $("#ratings-export-clear"), exportRatedOnly: $("#ratings-export-rated-only"), exportSelectedTeams: $("#export-selected-team-ratings"), exportFeedback: $("#ratings-export-feedback"),
     syncStatus: $("#ratings-sync-status"), syncCount: $("#ratings-sync-count"), evaluatorName: $("#ratings-evaluator-name"), uploadFirestore: $("#ratings-upload-firestore"), importJson: $("#ratings-import-json"),
   };
-  const playerById = new Map(players.map((player) => [String(player.id), player]));
+  let playerById = new Map(players.map((player) => [String(player.id), player]));
   let selectedTeamId = teams[0]?.id || "";
   let selectedPlayerId = "";
   let editorDraft = null;
@@ -72,6 +75,8 @@
     if (!existingTime && !incomingTime && !existing) return true;
     return false;
   }
+
+  function refreshPlayerCache() { customPlayers = CustomPlayers?.load(localStorage) || []; players = [...officialPlayers, ...customPlayers]; playerById = new Map(players.map((player) => [String(player.id), player])); }
 
   function mergeRatingRecord(playerIdValue, record) {
     const id = String(playerIdValue || record?.playerId || "");
@@ -257,9 +262,9 @@
   }
 
   function playersForTeam(team) {
-    if (Array.isArray(team?.playerIds)) return team.playerIds.map((id) => playerById.get(String(id))).filter(Boolean).sort((a, b) => collator.compare(a.name, b.name));
-    const linked = linkedByTeamPlayers(team); const fallback = linked.length ? linked : linkedByPlayerFields(team);
-    return unique(fallback.map((player) => player.id)).map((id) => fallback.find((player) => player.id === id)).filter(Boolean).sort((a, b) => collator.compare(a.name, b.name));
+    const official = Array.isArray(team?.playerIds) ? team.playerIds.map((id) => playerById.get(String(id))).filter(Boolean) : (() => { const linked = linkedByTeamPlayers(team); return linked.length ? linked : linkedByPlayerFields(team); })();
+    const custom = CustomPlayers?.customPlayersForTeam(team, customPlayers) || [];
+    return unique([...official, ...custom].map((player) => player.id)).map((id) => [...official, ...custom].find((player) => player.id === id)).filter(Boolean).sort((a, b) => collator.compare(a.name, b.name));
   }
 
   function selectedTeam() {
@@ -318,7 +323,7 @@
       stat("Rating caricati da Firestore", syncState.firestoreLoaded.toLocaleString()),
       stat("Ultima scrittura Firestore", syncState.lastSave || "—"),
       stat("Ultimo errore sync", syncState.lastError || syncState.offlineCause || "—"),
-      stat("Fonte dati giocatori", "globalThis.INAZUMA_PLAYERS"), stat("Fonte dati squadre", "globalThis.INAZUMA_TEAMS"),
+      stat("Fonte dati giocatori", "globalThis.INAZUMA_PLAYERS + localStorage inazumaCustomPlayers"), stat("Fonte dati squadre", "globalThis.INAZUMA_TEAMS"),
       stat("Squadra selezionata", team ? `${team.name || "—"} / ${team.id || "—"}` : "—"),
       stat("Giocatori collegati alla squadra selezionata", team ? playersForTeam(team).length.toLocaleString() : "0"),
     );
@@ -525,9 +530,11 @@
     return normalizePlayerElement(firstValue(player, ["element", "type", "attribute", "nature", "affinity", "tipo", "elemento"]));
   }
 
+  // Keep playerElement available for official export contracts; custom players may also expose element directly.
+  // element: playerElement
   function ratedPlayerPayload(player) {
     const rating = normalizeRating(ratings[playerId(player)]); const overall = overallFor(player, rating);
-    return { playerId: playerId(player), name: player.name || "", portraitUrl: playerPortraitUrl(player), position: player.position || player.role || "", element: playerElement(player), ...Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, rating[stat]])), overall, category: categoryFor(overall) };
+    return { playerId: playerId(player), id: playerId(player), name: player.name || "", portraitUrl: playerPortraitUrl(player), position: player.position || player.role || "", element: player.element || playerElement(player), type: player.type || player.element || playerElement(player), teamIds: Array.isArray(player.teamIds) ? player.teamIds : [], teams: Array.isArray(player.teams) ? player.teams : [], custom: Boolean(player.custom), ...Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, rating[stat]])), overall, category: categoryFor(overall) };
   }
 
   function selectedTeamExportPayload(team) {
@@ -540,7 +547,7 @@
   function exportRatingsJson() {
     const payload = players.filter(isRated).map((player) => {
       const rating = normalizeRating(ratings[playerId(player)]); const overall = overallFor(player, rating);
-      return { playerId: playerId(player), ...Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, rating[stat]])), overall, category: categoryFor(overall) };
+      return { playerId: playerId(player), id: playerId(player), name: player.name || "", position: player.position || player.role || "", element: player.element || playerElement(player), type: player.type || player.element || playerElement(player), portraitUrl: playerPortraitUrl(player), teamIds: Array.isArray(player.teamIds) ? player.teamIds : [], teams: Array.isArray(player.teams) ? player.teams : [], custom: Boolean(player.custom), ...Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, rating[stat]])), overall, category: categoryFor(overall) };
     });
     download("ratings.json", JSON.stringify(payload, null, 2));
   }
@@ -670,6 +677,7 @@
   }
 
   function render() {
+    refreshPlayerCache();
     if (!nodes.debug || !nodes.teams || !nodes.players) return;
     refreshFirebaseDiagnostics();
     if ((!firestoreSyncStarted || !syncState.firestoreConnected) && syncState.authAvailable && syncState.firestoreAvailable) startFirestoreSync();
@@ -692,5 +700,5 @@
   nodes.uploadFirestore?.addEventListener("click", uploadLocalRatingsToFirestore);
   nodes.importJson?.addEventListener("change", () => importRatingsJson(nodes.importJson.files && nodes.importJson.files[0]));
   startFirestoreSync();
-  globalThis.InazumaPlayerRatings = { render, playersForTeam, overallFor, categoryFor, starsFor, exportRatingsJson, exportTeamsRatedJson, exportSelectedTeamsRatingsJson, startFirestoreSync };
+  globalThis.InazumaPlayerRatings = { render, refresh: render, playersForTeam, overallFor, categoryFor, starsFor, exportRatingsJson, exportTeamsRatedJson, exportSelectedTeamsRatingsJson, startFirestoreSync };
 })();
