@@ -1227,3 +1227,26 @@ dialog::backdrop { background: rgba(3,20,37,.7); backdrop-filter: blur(3px); }
   .custom-player-card > img { width: 64px; height: 64px; }
   .custom-player-card .card-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; }
 }
+
+/* Player Ratings generators */
+.ratings-auto-panel, .ratings-generate-panel {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fbff;
+}
+.ratings-auto-panel h4, .ratings-generate-panel strong { margin: 0; color: var(--ink); font-weight: 800; }
+.ratings-auto-panel small, .ratings-auto-summary, .ratings-auto-report, .ratings-generate-message { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+.ratings-auto-fields, .ratings-generate-controls { display: flex; flex-wrap: wrap; gap: 9px; align-items: end; }
+.ratings-auto-fields label, .ratings-generate-controls label { display: grid; gap: 5px; min-width: 120px; color: var(--muted); font-size: .68rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.ratings-auto-fields input, .ratings-generate-controls input { height: 39px; width: 100%; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.ratings-generate-panel { margin: 0 0 14px; }
+.ratings-auto-badge { display: inline-flex; margin-left: 4px; padding: 1px 5px; border-radius: 999px; color: #fff; background: #f59e0b; font-size: .62rem; font-weight: 900; }
+
+@media (max-width: 620px) {
+  .ratings-auto-fields, .ratings-generate-controls { display: grid; grid-template-columns: 1fr; }
+  .ratings-auto-fields .button, .ratings-generate-controls .button { width: 100%; }
+}
