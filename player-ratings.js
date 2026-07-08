@@ -317,12 +317,14 @@
   }
 
 
+  function isControlledOverallBand(overall) { return overall >= 70 && overall <= 76; }
+
   function statInRange([min, max]) { return randomInt(min, max); }
 
   function clampRange(value, [min, max]) { return Math.max(min, Math.min(max, clampStat(value))); }
 
   function controlledRangeStats(player, targetOverall) {
-    if (targetOverall < 70 || targetOverall > 76) return null;
+    if (!isControlledOverallBand(targetOverall)) return null;
     const role = roleCode(player);
     const variants = {
       FW: ["finalizzatore", "veloce", "fisico", "tecnico", "grintoso"],
@@ -372,15 +374,20 @@
     return enforceRoleRules(player, stats);
   }
 
+  function usefulSpread(stats, fields) {
+    const values = fields.map((field) => stats[field]);
+    return Math.max(...values) - Math.min(...values);
+  }
+
   function controlledProfileViolation(player, stats, targetOverall) {
-    if (targetOverall < 70 || targetOverall > 76) return 0;
+    if (!isControlledOverallBand(targetOverall)) return 0;
     const role = roleCode(player);
     if (Object.values(stats).some((value) => value > 8)) return Infinity;
     if (role !== "GK" && stats.save !== 1) return Infinity;
-    if (role === "FW" && (stats.attack < 7 || stats.control < 6 || stats.defense > 3)) return Infinity;
-    if (role === "MF" && (stats.control < 7 || stats.stamina < 6 || stats.defense < 4 || stats.attack > 8)) return Infinity;
-    if (role === "DF" && (stats.defense < 7 || stats.physical < 6 || stats.grit < 6 || stats.attack > 3)) return Infinity;
-    if (role === "GK" && (stats.save < 7 || stats.attack > 2 || stats.speed > 2 || stats.save < Math.max(stats.physical, stats.grit, stats.defense))) return Infinity;
+    if (role === "FW" && (stats.attack < 7 || stats.control < 6 || stats.defense > 3 || usefulSpread(stats, ["attack", "control", "speed", "physical", "stamina", "grit"]) > 3)) return Infinity;
+    if (role === "MF" && (stats.control < 7 || stats.stamina < 6 || stats.defense < 4 || stats.attack > 8 || usefulSpread(stats, ["attack", "physical", "stamina", "control", "defense", "speed", "grit"]) > 4)) return Infinity;
+    if (role === "DF" && (stats.defense < 7 || stats.physical < 6 || stats.grit < 6 || stats.attack > 3 || usefulSpread(stats, ["physical", "stamina", "control", "defense", "speed", "grit"]) > 4)) return Infinity;
+    if (role === "GK" && (stats.save < 7 || stats.attack > 2 || stats.speed > 2 || stats.save < Math.max(stats.physical, stats.grit, stats.defense) || usefulSpread(stats, ["physical", "stamina", "control", "defense", "grit", "save"]) > 5)) return Infinity;
     return 0;
   }
 
@@ -416,6 +423,10 @@
       const score = violation + (rangePenalty * 100) + Math.abs(overall - targetOverall) + (Math.random() * 0.05);
       if (score < bestScore) { best = { stats, overall }; bestScore = score; }
       if (overall === targetOverall && overall >= min && overall <= max) return best;
+    }
+    if (!best && isControlledOverallBand(targetOverall)) {
+      const stats = controlledRangeStats(player, targetOverall);
+      return stats ? { stats, overall: overallFor(player, stats) } : null;
     }
     return best;
   }
