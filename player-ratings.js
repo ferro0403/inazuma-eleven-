@@ -316,7 +316,77 @@
     return stats;
   }
 
-  function candidateStats(player) {
+
+  function statInRange([min, max]) { return randomInt(min, max); }
+
+  function clampRange(value, [min, max]) { return Math.max(min, Math.min(max, clampStat(value))); }
+
+  function controlledRangeStats(player, targetOverall) {
+    if (targetOverall < 70 || targetOverall > 76) return null;
+    const role = roleCode(player);
+    const variants = {
+      FW: ["finalizzatore", "veloce", "fisico", "tecnico", "grintoso"],
+      MF: ["regista", "box-to-box", "fisico", "offensivo", "difensivo", "equilibrato"],
+      DF: ["marcatore", "fisico", "veloce", "grintoso", "difensivo puro"],
+      GK: ["riflessi", "fisico", "grintoso", "equilibrato"],
+    };
+    const variant = (variants[role] || variants.MF)[randomInt(0, (variants[role] || variants.MF).length - 1)];
+    const ranges = {
+      FW: { attack: [7, 8], control: [6, 8], speed: [5, 7], physical: [5, 7], stamina: [5, 7], grit: [5, 7], defense: [1, 3], save: [1, 1] },
+      MF: { attack: [5, 7], physical: [5, 7], stamina: [6, 8], control: [7, 8], defense: [4, 6], speed: [5, 7], grit: [6, 7], save: [1, 1] },
+      DF: { attack: [1, 3], physical: [6, 8], stamina: [5, 7], control: [4, 6], defense: [7, 8], speed: [5, 7], grit: [6, 8], save: [1, 1] },
+      GK: { attack: [1, 2], physical: [5, 7], stamina: [3, 5], control: [3, 5], defense: [5, 7], speed: [1, 2], grit: [6, 7], save: [7, 8] },
+    }[role] || { attack: [5, 7], physical: [5, 7], stamina: [6, 8], control: [7, 8], defense: [4, 6], speed: [5, 7], grit: [6, 7], save: [1, 1] };
+    const stats = Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, statInRange(ranges[stat])]));
+    const boost = (stat, delta) => { stats[stat] = clampRange(stats[stat] + delta, ranges[stat]); };
+    if (role === "FW") {
+      if (variant === "veloce") { boost("speed", 1); boost("physical", -1); }
+      if (variant === "fisico") { boost("physical", 1); boost("speed", -1); }
+      if (variant === "tecnico") { boost("control", 1); boost("physical", -1); }
+      if (variant === "grintoso") { boost("grit", 1); boost("stamina", 1); Math.random() < 0.5 ? boost("speed", -1) : boost("physical", -1); }
+      if (variant === "finalizzatore") { boost("attack", 1); boost("control", 1); }
+      stats.attack = Math.max(stats.attack, 7); stats.control = Math.max(stats.control, 6);
+    }
+    if (role === "MF") {
+      if (variant === "regista") { boost("control", 1); boost("stamina", 1); }
+      if (variant === "box-to-box") { boost("stamina", 1); boost("grit", 1); boost("physical", 1); }
+      if (variant === "fisico") { boost("physical", 1); boost("speed", -1); }
+      if (variant === "offensivo") { ranges.attack = [6, 8]; stats.attack = clampRange(Math.max(stats.attack, 6) + 1, ranges.attack); boost("defense", -1); }
+      if (variant === "difensivo") { boost("defense", 1); boost("attack", -1); }
+      stats.control = Math.max(stats.control, 7); stats.stamina = Math.max(stats.stamina, 6); stats.defense = Math.max(stats.defense, 4);
+    }
+    if (role === "DF") {
+      if (variant === "fisico") { boost("physical", 1); boost("speed", -1); }
+      if (variant === "veloce") { boost("speed", 1); boost("physical", -1); }
+      if (variant === "marcatore") { boost("defense", 1); boost("grit", 1); }
+      if (variant === "grintoso") { boost("grit", 1); boost("stamina", 1); }
+      if (variant === "difensivo puro") { boost("defense", 1); stats.attack = randomInt(1, 2); }
+      stats.defense = Math.max(stats.defense, 7); stats.physical = Math.max(stats.physical, 6); stats.grit = Math.max(stats.grit, 6);
+    }
+    if (role === "GK") {
+      if (variant === "riflessi") { boost("save", 1); }
+      if (variant === "fisico") { boost("physical", 1); }
+      if (variant === "grintoso") { boost("grit", 1); boost("defense", 1); }
+      stats.attack = randomInt(1, 2); stats.speed = Math.random() < 0.85 ? 1 : 2; stats.save = Math.max(stats.save, stats.physical + 1, stats.grit + 1, stats.defense + 1);
+    }
+    return enforceRoleRules(player, stats);
+  }
+
+  function controlledProfileViolation(player, stats, targetOverall) {
+    if (targetOverall < 70 || targetOverall > 76) return 0;
+    const role = roleCode(player);
+    if (Object.values(stats).some((value) => value > 8)) return Infinity;
+    if (role !== "GK" && stats.save !== 1) return Infinity;
+    if (role === "FW" && (stats.attack < 7 || stats.control < 6 || stats.defense > 3)) return Infinity;
+    if (role === "MF" && (stats.control < 7 || stats.stamina < 6 || stats.defense < 4 || stats.attack > 8)) return Infinity;
+    if (role === "DF" && (stats.defense < 7 || stats.physical < 6 || stats.grit < 6 || stats.attack > 3)) return Infinity;
+    if (role === "GK" && (stats.save < 7 || stats.attack > 2 || stats.speed > 2 || stats.save < Math.max(stats.physical, stats.grit, stats.defense))) return Infinity;
+    return 0;
+  }
+
+  function candidateStats(player, targetOverall = 75) {
+    const controlled = controlledRangeStats(player, targetOverall);
+    if (controlled) return controlled;
     const role = roleCode(player);
     const important = roleImportantStats(role);
     const boost = roleArchetypeBoost(role);
@@ -338,10 +408,12 @@
     let best = null;
     let bestScore = Infinity;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const stats = candidateStats(player);
+      const stats = candidateStats(player, targetOverall);
+      const violation = controlledProfileViolation(player, stats, targetOverall);
+      if (!Number.isFinite(violation)) continue;
       const overall = overallFor(player, stats);
       const rangePenalty = overall < min ? min - overall : overall > max ? overall - max : 0;
-      const score = (rangePenalty * 100) + Math.abs(overall - targetOverall) + (Math.random() * 0.05);
+      const score = violation + (rangePenalty * 100) + Math.abs(overall - targetOverall) + (Math.random() * 0.05);
       if (score < bestScore) { best = { stats, overall }; bestScore = score; }
       if (overall === targetOverall && overall >= min && overall <= max) return best;
     }
