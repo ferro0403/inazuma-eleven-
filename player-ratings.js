@@ -490,16 +490,16 @@
     const counts = autoTeamCounts(team);
     const panel = document.createElement("section"); panel.className = "ratings-auto-panel";
     const title = document.createElement("h4"); title.textContent = "Auto-valuta squadra";
-    const mode = document.createElement("small"); mode.textContent = "Modalità: solo non valutati";
+    const mode = document.createElement("small"); mode.textContent = "Salva solo in localStorage. Per Firestore usa il pulsante dedicato.";
     const fields = document.createElement("div"); fields.className = "ratings-auto-fields";
     const minLabel = document.createElement("label"); minLabel.innerHTML = "<span>Overall minimo</span>";
     const minInput = document.createElement("input"); minInput.type = "number"; minInput.min = "1"; minInput.max = "99"; minInput.value = autoMinOverall; minInput.addEventListener("input", () => { autoMinOverall = clampOverall(minInput.value); }); minLabel.append(minInput);
     const maxLabel = document.createElement("label"); maxLabel.innerHTML = "<span>Overall massimo</span>";
     const maxInput = document.createElement("input"); maxInput.type = "number"; maxInput.min = "1"; maxInput.max = "99"; maxInput.value = autoMaxOverall; maxInput.addEventListener("input", () => { autoMaxOverall = clampOverall(maxInput.value); }); maxLabel.append(maxInput);
-    const run = document.createElement("button"); run.type = "button"; run.className = "button"; run.textContent = "Auto-valuta non valutati"; run.disabled = counts.unrated === 0; run.addEventListener("click", () => autoEvaluateSelectedTeam());
+    const run = document.createElement("button"); run.type = "button"; run.className = "button"; run.textContent = "Auto-valuta"; run.disabled = counts.unrated === 0; run.addEventListener("click", () => autoEvaluateSelectedTeam());
     fields.append(minLabel, maxLabel, run);
-    const summary = document.createElement("p"); summary.className = "ratings-auto-summary"; summary.textContent = `Giocatori totali: ${counts.total} · Già valutati: ${counts.rated} · Non valutati: ${counts.unrated} · Verranno generati: ${counts.unrated}`;
-    const report = document.createElement("p"); report.className = "ratings-auto-report"; report.textContent = autoReport || (counts.unrated ? "I rating generati resteranno locali finché non usi il pulsante Carica rating locali su Firestore." : "Non ci sono giocatori non valutati in questa squadra.");
+    const summary = document.createElement("p"); summary.className = "ratings-auto-summary"; summary.textContent = `Totali ${counts.total} · Valutati ${counts.rated} · Da generare ${counts.unrated}`;
+    const report = document.createElement("p"); report.className = "ratings-auto-report"; report.textContent = autoReport || (counts.unrated ? "Solo non valutati. Nessuna modifica automatica a Firestore." : "Non ci sono giocatori non valutati in questa squadra.");
     panel.append(title, mode, fields, summary, report);
     return panel;
   }
@@ -573,9 +573,10 @@
     const card = document.createElement("article"); card.className = "ratings-editor-card";
     const header = document.createElement("header");
     header.append(imageOrPlaceholder(player.imageUrl || player.portraitUrl, `${player.name} portrait`, player.name, "ratings-editor-card__portrait"));
-    const info = document.createElement("div"); const name = document.createElement("h3"); name.textContent = player.name || "Unnamed player";
-    const meta = document.createElement("p"); meta.textContent = `ID: ${player.id ?? "—"} · ${player.position || player.role || "Ruolo sconosciuto"} · ${team?.name || "—"}`;
-    const score = document.createElement("p"); score.className = "ratings-editor-card__score"; score.textContent = `Overall ${overall} · ${category} · ${rated ? "Valutato" : "Non valutato"}`;
+    const info = document.createElement("div"); info.className = "ratings-editor-card__info"; const name = document.createElement("h3"); name.textContent = player.name || "Unnamed player";
+    const meta = document.createElement("div"); meta.className = "ratings-editor-meta";
+    [`ID ${player.id ?? "—"}`, player.position || player.role || "Ruolo sconosciuto", team?.name || "—", rated ? "Valutato" : "Non valutato"].forEach((value) => meta.append(Object.assign(document.createElement("span"), { textContent: value })));
+    const score = document.createElement("p"); score.className = "ratings-editor-card__score"; score.textContent = `OVR ${overall} · ${category}`;
     info.append(name, meta, score); header.append(info); card.append(header);
     const controls = document.createElement("div"); controls.className = "ratings-stat-grid";
     STAT_DEFS.forEach(([stat, label]) => {
@@ -589,15 +590,15 @@
       row.append(title, minus, value, plus); controls.append(row);
     });
     const generator = document.createElement("section"); generator.className = "ratings-generate-panel";
-    const generatorTitle = document.createElement("strong"); generatorTitle.textContent = "Genera da overall";
+    const generatorTitle = document.createElement("strong"); generatorTitle.textContent = "Genera OVR";
     const generatorControls = document.createElement("div"); generatorControls.className = "ratings-generate-controls";
-    const targetLabel = document.createElement("label"); targetLabel.innerHTML = "<span>Overall desiderato</span>";
+    const targetLabel = document.createElement("label"); targetLabel.innerHTML = "<span>OVR</span>";
     const targetInput = document.createElement("input"); targetInput.type = "number"; targetInput.min = "1"; targetInput.max = "99"; targetInput.value = overall;
     targetLabel.append(targetInput);
-    const generateButton = document.createElement("button"); generateButton.type = "button"; generateButton.className = "button button--quiet"; generateButton.textContent = "Genera stats";
+    const generateButton = document.createElement("button"); generateButton.type = "button"; generateButton.className = "button button--quiet"; generateButton.textContent = "Genera";
     generateButton.addEventListener("click", () => generateStatsForEditor(player, targetInput.value));
     generatorControls.append(targetLabel, generateButton);
-    const generatorHelp = document.createElement("p"); generatorHelp.className = "ratings-generate-message"; generatorHelp.textContent = generatorMessage || `Overall attuale: ${overall}. Genera modifica solo la UI: premi Salva e prossimo per salvare.`;
+    const generatorHelp = document.createElement("p"); generatorHelp.className = "ratings-generate-message"; generatorHelp.textContent = generatorMessage || `Attuale ${overall}. Non salva finché non premi Salva.`;
     generator.append(generatorTitle, generatorControls, generatorHelp);
     card.append(generator);
     const actions = document.createElement("div"); actions.className = "ratings-editor-actions";
@@ -823,22 +824,31 @@
       try {
         const payload = JSON.parse(String(reader.result || "[]"));
         if (!Array.isArray(payload)) throw new Error("ratings.json deve contenere un array");
-        let imported = 0; let existing = 0;
+        const previousCount = Object.keys(ratings).length;
+        if (!confirm("Vuoi sostituire i rating attuali con quelli del file importato? I giocatori non presenti nel file torneranno non valutati. Firestore non verrà modificato automaticamente.")) {
+          if (nodes.importJson) nodes.importJson.value = "";
+          return;
+        }
+        const replacement = {};
+        let imported = 0; let ignored = 0;
         payload.forEach((record) => {
-          const id = String(record?.playerId || "");
-          if (!id) return;
-          if (ratings[id]) existing += 1;
-          if (!ratings[id] || shouldUseIncoming(ratings[id], record) || (!timestampValue(ratings[id].updatedAt) && !timestampValue(record.updatedAt) && confirm(`Il rating del giocatore ${id} esiste già. Vuoi sovrascriverlo?`))) {
-            ratings[id] = { ...normalizeRating(record), updatedAt: updatedAtString(record.updatedAt) || new Date().toISOString(), updatedBy: clean(record.updatedBy) || syncState.evaluatorName || "Utente" };
-            imported += 1;
-          }
+          const id = String(record?.playerId || record?.id || "");
+          if (!id || !playerById.has(id)) { ignored += 1; return; }
+          replacement[id] = { ...normalizeRating(record), updatedAt: updatedAtString(record.updatedAt) || new Date().toISOString(), updatedBy: clean(record.updatedBy) || syncState.evaluatorName || "Import" };
+          imported += 1;
         });
-        persistRatings(); render(); updateSyncStatus(`Import completato: ${imported} rating importati, ${existing} già presenti. Alcuni rating erano già presenti. Sono stati mantenuti i più recenti dove possibile.`);
+        ratings = replacement;
+        selectedPlayerId = playerById.has(selectedPlayerId) ? selectedPlayerId : "";
+        editorDraft = null; editorDraftPlayerId = ""; completionMessage = ""; generatorMessage = "";
+        persistRatings();
+        render();
+        updateSyncStatus(`Import completato: Rating importati: ${imported}. Rating ignorati: ${ignored}. Rating precedenti rimossi: ${previousCount}. Firestore: non modificato.`);
       } catch (error) { updateSyncStatus("Errore import ratings.json", error); renderDebug(); }
       if (nodes.importJson) nodes.importJson.value = "";
     };
     reader.readAsText(file);
   }
+
 
   function render() {
     refreshPlayerCache();
