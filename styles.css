@@ -1313,3 +1313,57 @@ dialog::backdrop { background: rgba(3,20,37,.7); backdrop-filter: blur(3px); }
   .ratings-editor-actions .button:last-child { grid-column: 2 / 4; }
   .ratings-editor-actions .button { min-height: 31px; padding: 0 6px; font-size: .6rem; }
 }
+
+/* Player detail modal */
+.player-card { cursor: pointer; }
+.player-card:focus-visible { outline: 3px solid var(--yellow); outline-offset: 4px; }
+.player-detail-dialog { width: min(1040px, calc(100% - 28px)); max-height: min(86vh, 820px); overflow: visible; color: #fff; background: transparent; }
+.player-detail-dialog::backdrop { background: rgba(3, 14, 29, .78); backdrop-filter: blur(4px); }
+.player-detail { position: relative; display: grid; grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr); overflow: hidden; border: 1px solid rgba(255,255,255,.14); border-radius: 24px; background: radial-gradient(circle at 24% 18%, rgba(255,212,0,.2), transparent 34%), linear-gradient(135deg, #082748, #07192d 54%, #030a15); box-shadow: 0 34px 90px rgba(0,0,0,.45); }
+.player-detail__close { position: absolute; z-index: 4; top: 12px; right: 12px; display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid rgba(255,255,255,.25); border-radius: 50%; color: #fff; background: rgba(4,16,32,.72); font-size: 1.6rem; line-height: 1; }
+.player-detail__media { position: relative; display: grid; min-height: 520px; place-items: end center; padding: 54px 28px 24px; background: linear-gradient(180deg, rgba(11,140,219,.18), rgba(255,255,255,.04)); }
+.player-detail__fullbody { display: grid; width: 100%; height: min(58vh, 560px); place-items: center; }
+.player-detail__fullbody img { width: 100%; height: 100%; object-fit: contain; object-position: center bottom; filter: drop-shadow(0 20px 26px rgba(0,0,0,.38)); }
+.player-detail__fullbody.is-placeholder { color: rgba(255,255,255,.32); font: 900 7rem "Barlow Condensed"; }
+.player-detail__portrait { position: absolute; left: 22px; bottom: 22px; display: grid; width: 82px; height: 82px; place-items: center; overflow: hidden; border: 3px solid rgba(255,255,255,.82); border-radius: 20px; background: #dce8f2; color: var(--blue-dark); font-weight: 900; }
+.player-detail__portrait img { width: 100%; height: 100%; object-fit: contain; }
+.player-detail__info { overflow: auto; max-height: min(86vh, 820px); padding: 46px 34px 30px; }
+.player-detail__info .eyebrow { color: var(--yellow); }
+.player-detail__info h2 { margin: 0; font: italic 800 clamp(2.4rem, 5vw, 4.4rem)/.86 "Barlow Condensed"; text-transform: uppercase; }
+.player-detail__nickname { margin: 8px 0 0; color: #b8d5ec; font-weight: 700; }
+.player-detail__badges, .player-detail__teams, .player-detail__actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 16px; }
+.player-detail__badge { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 999px; color: #dff3ff; background: rgba(255,255,255,.11); font-size: .72rem; font-weight: 900; text-transform: uppercase; }
+.player-detail__badge--custom { color: #fff; background: #7c3aed; }
+.player-detail__rating { display: grid; gap: 10px; margin-top: 18px; padding: 14px; border: 1px solid rgba(255,255,255,.13); border-radius: 16px; background: rgba(255,255,255,.08); }
+.player-detail__rating > strong { color: var(--yellow); font: italic 800 2rem/.9 "Barlow Condensed"; }
+.player-detail__rating > span { color: #dcecff; font-weight: 800; }
+.player-detail__stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.player-detail__stats span { padding: 6px 7px; border-radius: 10px; background: rgba(255,255,255,.1); color: #e8f5ff; font-size: .68rem; font-weight: 900; text-align: center; }
+.player-detail__info h3 { margin: 20px 0 0; color: #fff; font: 800 1.2rem "Barlow Condensed"; text-transform: uppercase; }
+.player-detail__teams .team-chip { color: #dff3ff; background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.16); }
+.player-detail__meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 18px; }
+.player-detail__field { display: grid; gap: 3px; padding: 10px; border-radius: 12px; background: rgba(255,255,255,.08); }
+.player-detail__field span { color: #9fc2de; font-size: .62rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.player-detail__field strong { overflow: hidden; color: #fff; font-size: .86rem; text-overflow: ellipsis; white-space: nowrap; }
+.player-detail__description { margin-top: 18px; padding: 14px; border-radius: 16px; background: rgba(255,255,255,.07); }
+.player-detail__description h3 { margin-top: 0; }
+.player-detail__description p { margin: 8px 0 0; color: #cfe3f3; line-height: 1.55; }
+.player-detail__actions .button { box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+
+@media (max-width: 760px) {
+  .player-detail-dialog { width: 100%; max-width: none; max-height: 100dvh; margin: 0; }
+  .player-detail { min-height: 100dvh; grid-template-columns: 1fr; border-radius: 0; }
+  .player-detail__media { min-height: auto; padding: 48px 16px 8px; }
+  .player-detail__fullbody { height: min(42vh, 360px); }
+  .player-detail__portrait { width: 62px; height: 62px; left: 14px; bottom: 14px; border-radius: 15px; }
+  .player-detail__info { max-height: none; overflow: visible; padding: 18px 16px 26px; }
+  .player-detail__info h2 { font-size: clamp(2.2rem, 13vw, 3.5rem); }
+  .player-detail__badges, .player-detail__teams { margin-top: 12px; gap: 5px; }
+  .player-detail__badge { padding: 5px 8px; font-size: .62rem; }
+  .player-detail__rating { margin-top: 13px; padding: 10px; }
+  .player-detail__stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+  .player-detail__stats span { padding: 5px 3px; font-size: .58rem; }
+  .player-detail__meta { grid-template-columns: 1fr; gap: 6px; }
+  .player-detail__field { padding: 8px; }
+  .player-detail__description { padding: 11px; }
+}

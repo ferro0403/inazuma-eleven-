@@ -20,7 +20,7 @@
   const nodes = {
     views: { players: $("#players-view"), teams: $("#teams-view"), tournaments: $("#tournaments-view"), championships: $("#championships-view"), ratings: $("#ratings-view"), custom: $("#custom-view") }, tabs: [...document.querySelectorAll(".view-tab")],
     search: $("#search"), team: $("#team-filter"), position: $("#position-filter"), element: $("#element-filter"), reset: $("#reset-filters"), emptyReset: $("#empty-reset"),
-    grid: $("#player-grid"), empty: $("#empty-state"), pagination: $("#pagination"), count: $("#result-count"), total: $("#total-count"),
+    grid: $("#player-grid"), empty: $("#empty-state"), pagination: $("#pagination"), count: $("#result-count"), total: $("#total-count"), playerDetailDialog: $("#player-detail-dialog"), playerDetailContent: $("#player-detail-content"),
     teamGrid: $("#team-grid"), teamCount: $("#team-count"), teamSearch: $("#team-search"), createTeam: $("#create-team"), mergeTeams: $("#merge-teams"), exportTeams: $("#export-teams"),
     dialog: $("#team-dialog"), form: $("#team-form"), dialogTitle: $("#dialog-title"), dialogLogo: $("#dialog-logo"), teamId: $("#team-id"), teamName: $("#team-name"), logoUrl: $("#team-logo-url"), aliases: $("#team-aliases"), notes: $("#team-notes"), setLogo: $("#set-logo"), deleteTeam: $("#delete-team"),
     addPlayer: $("#add-player"), addPlayerButton: $("#add-player-button"), rosterList: $("#roster-list"), rosterCount: $("#roster-count"),
@@ -95,11 +95,96 @@
     const memberships = teamsForPlayer(player);
     if (memberships.length) memberships.forEach((team) => {
       const chip = document.createElement("button"); chip.type = "button"; chip.className = "team-chip"; chip.append(logo(team, "team-logo team-logo--tiny"), document.createTextNode(team.name));
-      chip.addEventListener("click", () => openTeam(team.id)); teamLine.append(chip);
+      chip.addEventListener("click", (event) => { event.stopPropagation(); openTeam(team.id); }); teamLine.append(chip);
     }); else { const none = document.createElement("span"); none.className = "player-card__team"; none.textContent = "Unaffiliated"; teamLine.append(none); }
     const element = document.createElement("span"); element.className = `element element--${elementClass[player.element] || "neutral"}`;
     const symbol = document.createElement("span"); symbol.setAttribute("aria-hidden", "true"); symbol.textContent = elementSymbol[player.element] || "●"; element.append(symbol, ` ${player.element || "Unknown"}`);
-    body.append(meta, name, teamLine, element); article.append(portrait, body); return article;
+    body.append(meta, name, teamLine, element); article.append(portrait, body); article.tabIndex = 0; article.setAttribute("role", "button"); article.setAttribute("aria-label", `Open details for ${player.name}`); article.addEventListener("click", () => openPlayerDetail(player)); article.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openPlayerDetail(player); } }); return article;
+  }
+
+
+  function loadRatingRecords() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem("inazumaPlayerRatings") || "{}");
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch { return {}; }
+  }
+
+  function playerPortrait(player) {
+    return player.imageUrl || player.portraitUrl || player.portrait || player.avatar || "";
+  }
+
+  function playerFullbody(player) {
+    return player.frontFullbodyUrl || player.fullbodyUrl || playerPortrait(player);
+  }
+
+  function detailBadge(text, className = "player-detail__badge") {
+    const badge = document.createElement("span"); badge.className = className; badge.textContent = text; return badge;
+  }
+
+  function detailField(label, value) {
+    if (!value) return null;
+    const item = document.createElement("div"); item.className = "player-detail__field";
+    item.append(Object.assign(document.createElement("span"), { textContent: label }), Object.assign(document.createElement("strong"), { textContent: value }));
+    return item;
+  }
+
+  function ratingForDetail(player) {
+    const record = loadRatingRecords()[String(player.id)];
+    if (!record?.updatedAt) return null;
+    const ratingsApi = globalThis.InazumaPlayerRatings;
+    const overall = typeof ratingsApi?.overallFor === "function" ? ratingsApi.overallFor(player, record) : record.overall;
+    const category = typeof ratingsApi?.categoryFor === "function" ? ratingsApi.categoryFor(overall) : record.category;
+    return { record, overall, category };
+  }
+
+  function imageWithFallback(urls, alt, className) {
+    const box = document.createElement("div"); box.className = className;
+    const image = document.createElement("img"); image.alt = alt; image.loading = "lazy"; image.decoding = "async";
+    let index = 0;
+    const apply = () => {
+      const next = urls[index++];
+      if (next) { image.src = next; if (!image.parentNode) box.append(image); return; }
+      image.remove(); box.classList.add("is-placeholder"); box.textContent = alt.slice(0, 2).toUpperCase() || "?";
+    };
+    image.addEventListener("error", apply);
+    apply(); return box;
+  }
+
+  function openPlayerDetail(player) {
+    if (!nodes.playerDetailDialog || !nodes.playerDetailContent) return;
+    const fullbody = playerFullbody(player); const portrait = playerPortrait(player); const rating = ratingForDetail(player); const memberships = teamsForPlayer(player);
+    const close = document.createElement("button"); close.type = "button"; close.className = "player-detail__close"; close.setAttribute("aria-label", "Close player detail"); close.textContent = "×"; close.addEventListener("click", () => nodes.playerDetailDialog.close());
+    const art = document.createDocumentFragment();
+    const media = document.createElement("section"); media.className = "player-detail__media";
+    media.append(imageWithFallback([...new Set([fullbody, portrait].filter(Boolean))], `${player.name || "Player"} fullbody`, "player-detail__fullbody"));
+    media.append(imageWithFallback([portrait, fullbody].filter(Boolean), `${player.name || "Player"} portrait`, "player-detail__portrait"));
+    const info = document.createElement("section"); info.className = "player-detail__info";
+    const eyebrow = Object.assign(document.createElement("p"), { className: "eyebrow", textContent: player.custom ? "Custom player" : "Player detail" });
+    const title = Object.assign(document.createElement("h2"), { id: "player-detail-title", textContent: player.name || player.displayName || "Unnamed player" });
+    const nickname = player.nickname ? Object.assign(document.createElement("p"), { className: "player-detail__nickname", textContent: `Nickname: ${player.nickname}` }) : null;
+    const badges = document.createElement("div"); badges.className = "player-detail__badges";
+    badges.append(detailBadge(`ID ${player.id ?? "—"}`), detailBadge(player.position || player.role || "Ruolo —"), detailBadge(player.element || player.type || "Elemento —", `player-detail__badge element element--${elementClass[player.element || player.type] || "neutral"}`));
+    if (player.custom) badges.append(detailBadge("CUSTOM", "player-detail__badge player-detail__badge--custom"));
+    const ratingBox = document.createElement("section"); ratingBox.className = "player-detail__rating";
+    if (rating?.overall) {
+      ratingBox.append(Object.assign(document.createElement("strong"), { textContent: `OVR ${rating.overall}` }), Object.assign(document.createElement("span"), { textContent: rating.category || "Categoria —" }));
+      const statGrid = document.createElement("div"); statGrid.className = "player-detail__stats";
+      [["attack", "ATK"], ["physical", "PHY"], ["stamina", "STA"], ["control", "CON"], ["defense", "DEF"], ["speed", "SPD"], ["grit", "GRT"], ["save", "SAV"]].forEach(([key, label]) => statGrid.append(Object.assign(document.createElement("span"), { textContent: `${label} ${rating.record[key] ?? "—"}` })));
+      ratingBox.append(statGrid);
+    } else ratingBox.append(Object.assign(document.createElement("strong"), { textContent: "Non valutato" }));
+    const teamBox = document.createElement("div"); teamBox.className = "player-detail__teams";
+    const sourceTeams = memberships.length ? memberships.map((team) => team.name) : (Array.isArray(player.teams) ? player.teams : []);
+    if (sourceTeams.length) sourceTeams.forEach((teamName) => teamBox.append(detailBadge(teamName, "team-chip"))); else teamBox.append(detailBadge("Svincolato", "team-chip"));
+    const meta = document.createElement("div"); meta.className = "player-detail__meta";
+    [detailField("Game", player.game), detailField("Gender", player.gender), detailField("Role", player.characterRole), detailField("Age group", player.ageGroup), detailField("School year", player.schoolYear)].filter(Boolean).forEach((field) => meta.append(field));
+    const description = document.createElement("section"); description.className = "player-detail__description"; description.append(Object.assign(document.createElement("h3"), { textContent: "Descrizione" }), Object.assign(document.createElement("p"), { textContent: player.description || player.notes || "Nessuna descrizione disponibile." }));
+    const actions = document.createElement("div"); actions.className = "player-detail__actions";
+    const rate = document.createElement("button"); rate.type = "button"; rate.className = "button"; rate.textContent = "Valuta giocatore"; rate.addEventListener("click", () => { nodes.playerDetailDialog.close(); switchView("ratings"); });
+    actions.append(rate);
+    [eyebrow, title, nickname, badges, ratingBox, Object.assign(document.createElement("h3"), { textContent: "Squadre" }), teamBox, meta, description, actions].filter(Boolean).forEach((node) => info.append(node));
+    art.append(close, media, info); nodes.playerDetailContent.replaceChildren(art);
+    nodes.playerDetailDialog.showModal();
   }
 
   function pageItems(totalPages, current) {
@@ -436,6 +521,7 @@
   function exportCustomPlayers() { download("custom-players.json", JSON.stringify(customPlayers, null, 2)); }
   function importCustomPlayers(file) { if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const payload = JSON.parse(String(reader.result || "[]")); const records = Array.isArray(payload) ? payload : []; let imported = 0; records.forEach((record) => { const normalized = CustomPlayers.normalize(record, { keepId: true, existing: customPlayers }); if (!normalized) return; if (customPlayers.some((p) => p.id === normalized.id) || officialPlayers.some((p) => String(p.id) === normalized.id || String(p.playerId) === normalized.id)) normalized.id = normalized.playerId = CustomPlayers.nextId(customPlayers); customPlayers.push(normalized); imported += 1; }); CustomPlayers.save(customPlayers, localStorage); nodes.customFeedback.textContent = `Import completato: ${imported} custom players.`; resetCustomForm(); refreshAllAfterCustomChange(); } catch (error) { nodes.customFeedback.textContent = `Import fallito: ${error.message}`; } nodes.customImport.value = ""; }; reader.readAsText(file); }
 
+  nodes.playerDetailDialog?.addEventListener("click", (event) => { if (event.target === nodes.playerDetailDialog) nodes.playerDetailDialog.close(); });
   nodes.tabs.forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
   uniqueSorted(players.map((player) => player.position)).forEach((value) => nodes.position.add(new Option(value, value)));
   uniqueSorted(players.map((player) => player.element)).forEach((value) => nodes.element.add(new Option(value, value)));
