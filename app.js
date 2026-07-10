@@ -154,9 +154,58 @@
     apply(); return box;
   }
 
+
+  function teamMatchValues(team) {
+    return [team?.id, team?.name, ...(Array.isArray(team?.aliases) ? team.aliases : [])]
+      .map((value) => String(value ?? "").trim().toLocaleLowerCase())
+      .filter(Boolean);
+  }
+
+  function teamNameFromReference(reference) {
+    if (typeof reference === "string" || typeof reference === "number") return String(reference).trim();
+    return String(reference?.name || reference?.id || "").trim();
+  }
+
+  function teamForReference(reference) {
+    const value = teamNameFromReference(reference).toLocaleLowerCase();
+    if (!value) return null;
+    return teams.find((team) => teamMatchValues(team).includes(value)) || { id: "", name: teamNameFromReference(reference), logoUrl: "", aliases: [], missing: true };
+  }
+
+  function playerDetailTeams(player) {
+    const resolved = [...teamsForPlayer(player)];
+    (Array.isArray(player.teams) ? player.teams : []).map(teamForReference).filter(Boolean).forEach((team) => resolved.push(team));
+    const seen = new Set();
+    return resolved.filter((team) => {
+      const dedupeKey = String(team?.id || team?.name || "").trim().toLocaleLowerCase();
+      if (!dedupeKey || seen.has(dedupeKey)) return false;
+      seen.add(dedupeKey);
+      return true;
+    });
+  }
+
+  function detailTeamLogo(team) {
+    const logoBox = document.createElement("span"); logoBox.className = "player-detail__team-logo";
+    const fallback = () => { logoBox.replaceChildren(Object.assign(document.createElement("span"), { textContent: (team?.name || "?").slice(0, 2).toUpperCase() })); logoBox.classList.add("is-placeholder"); };
+    if (team?.logoUrl) {
+      const image = document.createElement("img"); image.src = team.logoUrl; image.alt = `${team.name} logo`; image.loading = "lazy"; image.decoding = "async"; image.addEventListener("error", fallback, { once: true }); logoBox.append(image);
+    } else fallback();
+    return logoBox;
+  }
+
+  function detailTeamCard(team, index) {
+    const card = document.createElement(team?.id ? "button" : "article"); card.className = `player-detail__team-card${team?.missing ? " is-fallback" : ""}`;
+    if (team?.id) { card.type = "button"; card.addEventListener("click", () => { nodes.playerDetailDialog.close(); openTeam(team.id); }); }
+    const text = document.createElement("span"); text.className = "player-detail__team-text";
+    text.append(Object.assign(document.createElement("strong"), { textContent: team?.name || "Squadra sconosciuta" }));
+    text.append(Object.assign(document.createElement("small"), { textContent: team?.missing ? "Nome dal profilo giocatore" : (index === 0 ? "Squadra" : "Altra squadra") }));
+    card.append(detailTeamLogo(team), text);
+    return card;
+  }
+
   function openPlayerDetail(player) {
     if (!nodes.playerDetailDialog || !nodes.playerDetailContent) return;
-    const fullbody = playerFullbody(player); const portrait = playerPortrait(player); const rating = ratingForDetail(player); const memberships = teamsForPlayer(player);
+    const fullbody = playerFullbody(player); const portrait = playerPortrait(player); const rating = ratingForDetail(player); const memberships = playerDetailTeams(player);
     const close = document.createElement("button"); close.type = "button"; close.className = "player-detail__close"; close.setAttribute("aria-label", "Close player detail"); close.textContent = "×"; close.addEventListener("click", () => nodes.playerDetailDialog.close());
     const art = document.createDocumentFragment();
     const media = document.createElement("section"); media.className = "player-detail__media";
@@ -176,9 +225,8 @@
       [["attack", "ATK"], ["physical", "PHY"], ["stamina", "STA"], ["control", "CON"], ["defense", "DEF"], ["speed", "SPD"], ["grit", "GRT"], ["save", "SAV"]].forEach(([key, label]) => statGrid.append(Object.assign(document.createElement("span"), { textContent: `${label} ${rating.record[key] ?? "—"}` })));
       ratingBox.append(statGrid);
     } else ratingBox.append(Object.assign(document.createElement("strong"), { textContent: "Non valutato" }));
-    const teamBox = document.createElement("div"); teamBox.className = "player-detail__teams";
-    const sourceTeams = memberships.length ? memberships.map((team) => team.name) : (Array.isArray(player.teams) ? player.teams : []);
-    if (sourceTeams.length) sourceTeams.forEach((teamName) => teamBox.append(detailBadge(teamName, "team-chip"))); else teamBox.append(detailBadge("Svincolato", "team-chip"));
+    const teamBox = document.createElement("div"); teamBox.className = `player-detail__teams${memberships.length === 1 ? " player-detail__teams--single" : ""}`;
+    if (memberships.length) memberships.forEach((team, index) => teamBox.append(detailTeamCard(team, index))); else teamBox.append(Object.assign(document.createElement("p"), { className: "player-detail__teams-empty", textContent: "Nessuna squadra disponibile" }));
     const meta = document.createElement("div"); meta.className = "player-detail__meta";
     [detailField("Game", player.game), detailField("Gender", player.gender), detailField("Role", player.characterRole), detailField("Age group", player.ageGroup), detailField("School year", player.schoolYear)].filter(Boolean).forEach((field) => meta.append(field));
     const description = document.createElement("section"); description.className = "player-detail__description"; description.append(Object.assign(document.createElement("h3"), { textContent: "Descrizione" }), Object.assign(document.createElement("p"), { textContent: player.description || player.notes || "Nessuna descrizione disponibile." }));
