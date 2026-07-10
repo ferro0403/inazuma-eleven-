@@ -17,6 +17,7 @@
         <button class="view-tab" data-view="tournaments" type="button">Mini Tournaments</button>
         <button class="view-tab" data-view="championships" type="button">Full Team Championships</button>
         <button class="view-tab" data-view="ratings" type="button">Player Ratings</button>
+        <button class="view-tab" data-view="custom" type="button">Custom Players</button>
       </div>
     </div>
   </nav>
@@ -78,6 +79,35 @@
       <div id="championship-grid" class="tournament-grid"></div>
     </section>
 
+
+
+    <section id="custom-view" class="app-view manager" hidden>
+      <div class="manager__heading">
+        <div><p class="eyebrow">Custom Players</p><h2>Custom Players</h2><p>Crea personaggi originali, assegnali alle squadre esistenti e gestiscili senza modificare i database ufficiali.</p></div>
+        <div class="manager__actions"><button id="export-custom-players" class="button button--quiet" type="button">Esporta custom players</button><label class="ratings-import-button"><span class="button button--quiet">Importa custom players</span><input id="import-custom-players" type="file" accept="application/json,.json"></label><button id="reset-custom-players" class="button button--danger" type="button">Reset custom players locali</button></div>
+      </div>
+      <div class="custom-layout">
+        <form id="custom-player-form" class="custom-form">
+          <input id="custom-edit-id" type="hidden">
+          <p id="custom-generated-id" class="custom-generated-id">ID generato automaticamente: custom_0001</p>
+          <div class="form-grid">
+            <label><span>Nome *</span><input id="custom-first-name" required></label>
+            <label><span>Cognome</span><input id="custom-last-name"></label>
+            <label class="form-wide"><span>Nome visualizzato</span><input id="custom-display-name" placeholder="Generato da nome + cognome se vuoto"></label>
+            <label><span>Ruolo *</span><select id="custom-position" required><option>FW</option><option>MF</option><option>DF</option><option>GK</option></select></label>
+            <label><span>Elemento *</span><select id="custom-element" required><option>Forest</option><option>Fire</option><option>Mountain</option><option>Wind</option></select></label>
+            <label class="form-wide"><span>Foto / ritratto</span><input id="custom-portrait" type="file" accept="image/*"></label>
+            <label class="form-wide"><span>Squadra / Squadre</span><select id="custom-teams" multiple size="6"></select></label>
+            <label class="form-wide"><span>Descrizione / note</span><textarea id="custom-notes" rows="3"></textarea></label>
+          </div>
+          <div id="custom-preview" class="custom-preview"></div>
+          <div id="custom-feedback" class="picker-message"></div>
+          <div class="manager__actions"><button id="custom-cancel-edit" class="button button--quiet" type="button" hidden>Annulla modifica</button><button class="button" type="submit">Salva custom player</button></div>
+        </form>
+        <section><h3>Personaggi creati</h3><div id="custom-player-list" class="custom-player-list"></div></section>
+      </div>
+    </section>
+
     <section id="ratings-view" class="app-view manager" hidden>
       <div class="manager__heading">
         <div><p class="eyebrow">Player Ratings</p><h2>Player Ratings</h2><p>Valuta i giocatori, sincronizza opzionalmente i rating con Firestore ed esporta i risultati.</p></div>
@@ -110,6 +140,11 @@
       </div>
     </section>
   </main>
+
+
+  <dialog id="player-detail-dialog" class="player-detail-dialog" aria-labelledby="player-detail-title">
+    <article id="player-detail-content" class="player-detail"></article>
+  </dialog>
 
   <dialog id="team-dialog" class="team-dialog">
     <form id="team-form" method="dialog">
@@ -191,6 +226,6 @@
   </dialog>
 
   <footer><div class="shell">Fan-made data browser. Character data and images belong to LEVEL5 Inc.</div></footer>
-  <script src="data/players.js"></script><script src="data/teams.js"></script><script src="team-store.js"></script><script src="tournament-store.js"></script><script src="full-team-championship-store.js"></script><script src="app.js"></script><script src="full-team-championships.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script><script src="firebase-config.js"></script><script src="player-ratings.js"></script>
+  <script src="data/players.js"></script><script src="data/teams.js"></script><script src="custom-players.js"></script><script src="team-store.js"></script><script src="tournament-store.js"></script><script src="full-team-championship-store.js"></script><script src="app.js"></script><script src="full-team-championships.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script><script src="firebase-config.js"></script><script src="player-ratings.js"></script>
 </body>
 </html>

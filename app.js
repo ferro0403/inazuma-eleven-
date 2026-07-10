@@ -1,7 +1,10 @@
 (() => {
   "use strict";
 
-  const players = Array.isArray(globalThis.INAZUMA_PLAYERS) ? globalThis.INAZUMA_PLAYERS : [];
+  const officialPlayers = Array.isArray(globalThis.INAZUMA_PLAYERS) ? globalThis.INAZUMA_PLAYERS : [];
+  const CustomPlayers = globalThis.InazumaCustomPlayers;
+  let customPlayers = CustomPlayers?.load(localStorage) || [];
+  let players = [...officialPlayers, ...customPlayers];
   const seeds = Array.isArray(globalThis.INAZUMA_TEAMS) ? globalThis.INAZUMA_TEAMS : [];
   const Store = globalThis.InazumaTeamStore;
   const Tournaments = globalThis.InazumaTournamentStore;
@@ -10,29 +13,35 @@
   const state = { search: "", team: "", position: "", element: "", page: 1, teamSearch: "", selectedTeams: new Set(), editingTeam: null, editingTournament: null, tournamentDraft: { teamId: "", playerIds: [], editIndex: null } };
   const elementClass = { Fire: "fire", Forest: "forest", Wind: "wind", Mountain: "mountain" };
   const elementSymbol = { Fire: "◆", Forest: "✦", Wind: "➶", Mountain: "▲" };
-  let teams = Store.hydrate(players, seeds, Store.load(localStorage));
+  let teams = Store.hydrate(officialPlayers, seeds, Store.load(localStorage));
   let tournaments = Tournaments.load(localStorage);
 
   const $ = (selector) => document.querySelector(selector);
   const nodes = {
-    views: { players: $("#players-view"), teams: $("#teams-view"), tournaments: $("#tournaments-view"), championships: $("#championships-view"), ratings: $("#ratings-view") }, tabs: [...document.querySelectorAll(".view-tab")],
+    views: { players: $("#players-view"), teams: $("#teams-view"), tournaments: $("#tournaments-view"), championships: $("#championships-view"), ratings: $("#ratings-view"), custom: $("#custom-view") }, tabs: [...document.querySelectorAll(".view-tab")],
     search: $("#search"), team: $("#team-filter"), position: $("#position-filter"), element: $("#element-filter"), reset: $("#reset-filters"), emptyReset: $("#empty-reset"),
-    grid: $("#player-grid"), empty: $("#empty-state"), pagination: $("#pagination"), count: $("#result-count"), total: $("#total-count"),
+    grid: $("#player-grid"), empty: $("#empty-state"), pagination: $("#pagination"), count: $("#result-count"), total: $("#total-count"), playerDetailDialog: $("#player-detail-dialog"), playerDetailContent: $("#player-detail-content"),
     teamGrid: $("#team-grid"), teamCount: $("#team-count"), teamSearch: $("#team-search"), createTeam: $("#create-team"), mergeTeams: $("#merge-teams"), exportTeams: $("#export-teams"),
     dialog: $("#team-dialog"), form: $("#team-form"), dialogTitle: $("#dialog-title"), dialogLogo: $("#dialog-logo"), teamId: $("#team-id"), teamName: $("#team-name"), logoUrl: $("#team-logo-url"), aliases: $("#team-aliases"), notes: $("#team-notes"), setLogo: $("#set-logo"), deleteTeam: $("#delete-team"),
     addPlayer: $("#add-player"), addPlayerButton: $("#add-player-button"), rosterList: $("#roster-list"), rosterCount: $("#roster-count"),
     mergeDialog: $("#merge-dialog"), mergeSummary: $("#merge-summary"), mergeTarget: $("#merge-target"), confirmMerge: $("#confirm-merge"),
     tournamentGrid: $("#tournament-grid"), tournamentCount: $("#tournament-count"), createTournament: $("#create-tournament"), exportTournaments: $("#export-tournaments"),
+    customForm: $("#custom-player-form"), customEditId: $("#custom-edit-id"), customGeneratedId: $("#custom-generated-id"), customFirstName: $("#custom-first-name"), customLastName: $("#custom-last-name"), customDisplayName: $("#custom-display-name"), customPosition: $("#custom-position"), customElement: $("#custom-element"), customPortrait: $("#custom-portrait"), customTeams: $("#custom-teams"), customNotes: $("#custom-notes"), customPreview: $("#custom-preview"), customFeedback: $("#custom-feedback"), customList: $("#custom-player-list"), customCancel: $("#custom-cancel-edit"), customExport: $("#export-custom-players"), customImport: $("#import-custom-players"), customReset: $("#reset-custom-players"),
     tournamentDialog: $("#tournament-dialog"), tournamentForm: $("#tournament-form"), tournamentTitle: $("#tournament-title"), tournamentId: $("#tournament-id"), tournamentName: $("#tournament-name"), tournamentTeamSearch: $("#tournament-team-search"), tournamentTeamCards: $("#tournament-team-cards"), addTournamentTeam: $("#add-tournament-team"), tournamentPicker: $("#tournament-player-picker"), tournamentPickerMessage: $("#tournament-picker-message"), tournamentPanels: $("#tournament-team-panels"), tournamentErrors: $("#tournament-errors"), deleteTournament: $("#delete-tournament"),
   };
 
   const uniqueSorted = (values) => [...new Set(values.filter(Boolean))].sort(collator.compare);
-  const playerById = new Map(players.map((player) => [Number(player.id), player]));
+  let playerById = new Map(players.map((player) => [String(player.id), player]));
   const teamById = () => new Map(teams.map((team) => [team.id, team]));
   const persist = () => Store.save(localStorage, teams);
   const persistTournaments = () => Tournaments.save(localStorage, tournaments);
-  const teamPlayers = (team) => team.playerIds.map((id) => playerById.get(Number(id))).filter(Boolean).sort((a, b) => collator.compare(a.name, b.name));
-  const teamsForPlayer = (playerId) => teams.filter((team) => team.playerIds.includes(Number(playerId)));
+  const playerNumericId = (player) => Number(player?.id);
+  function refreshPlayersCache() { customPlayers = CustomPlayers?.load(localStorage) || []; players = [...officialPlayers, ...customPlayers]; playerById = new Map(players.map((player) => [String(player.id), player])); }
+  const CUSTOM_IMAGE_MAX_BYTES = 500 * 1024;
+  const CUSTOM_IMAGE_MAX_SIDE = 768;
+  const CUSTOM_IMAGE_QUALITY = 0.78;
+  const teamPlayers = (team) => { const official = team.playerIds.map((id) => playerById.get(String(id))).filter(Boolean); const custom = CustomPlayers?.customPlayersForTeam(team, customPlayers) || []; return [...official, ...custom].sort((a, b) => collator.compare(a.name, b.name)); };
+  const teamsForPlayer = (player) => teams.filter((team) => { const numeric = playerNumericId(player); return (Number.isFinite(numeric) && team.playerIds.includes(numeric)) || CustomPlayers?.isPlayerInTeam(player, team); });
 
   function logo(team, className = "team-logo") {
     const box = document.createElement("span");
@@ -52,7 +61,8 @@
     if (view === "teams") renderTeams();
     else if (view === "tournaments") renderTournaments();
     else if (view === "championships") globalThis.InazumaFullTeamChampionships?.render();
-    else if (view === "ratings") globalThis.InazumaPlayerRatings?.render();
+    else if (view === "ratings") { globalThis.InazumaPlayerRatings?.refresh?.(); globalThis.InazumaPlayerRatings?.render?.(); }
+    else if (view === "custom") renderCustomPlayers();
     else renderPlayers();
   }
 
@@ -67,9 +77,9 @@
     const needle = state.search.trim().toLocaleLowerCase();
     const selected = teamById().get(state.team);
     return players.filter((player) => {
-      const searchable = `${player.name || ""} ${player.nickname || ""}`.toLocaleLowerCase();
+      const searchable = `${player.id || ""} ${player.playerId || ""} ${player.name || ""} ${player.firstName || ""} ${player.lastName || ""} ${player.displayName || ""} ${player.nickname || ""} ${player.position || ""} ${player.element || ""} ${teamsForPlayer(player).map((team) => team.name).join(" ")}`.toLocaleLowerCase();
       return (!needle || searchable.includes(needle))
-        && (!selected || selected.playerIds.includes(Number(player.id)))
+        && (!selected || teamsForPlayer(player).some((team) => team.id === selected.id))
         && (!state.position || player.position === state.position)
         && (!state.element || player.element === state.element);
     });
@@ -78,21 +88,154 @@
   function playerCard(player) {
     const article = document.createElement("article"); article.className = "player-card";
     const portrait = document.createElement("div"); portrait.className = "player-card__portrait";
-    const image = document.createElement("img"); image.src = player.imageUrl; image.alt = `${player.name} portrait`; image.loading = "lazy"; image.decoding = "async";
+    const image = document.createElement("img"); image.src = player.imageUrl || player.portraitUrl || ""; image.alt = `${player.name} portrait`; image.loading = "lazy"; image.decoding = "async";
     image.addEventListener("error", () => article.classList.add("player-card--image-error"), { once: true }); portrait.append(image);
     const position = document.createElement("span"); position.className = "position-badge"; position.textContent = player.position || "—"; portrait.append(position);
     const body = document.createElement("div"); body.className = "player-card__body";
-    const meta = document.createElement("p"); meta.className = "player-card__meta"; meta.textContent = `NO. ${player.id}`;
+    const meta = document.createElement("p"); meta.className = "player-card__meta"; meta.textContent = `NO. ${player.id}`; if (player.custom) { const badge = document.createElement("span"); badge.className = "custom-badge"; badge.textContent = "CUSTOM"; meta.append(" ", badge); }
     const name = document.createElement("h3"); name.textContent = player.name;
     const teamLine = document.createElement("div"); teamLine.className = "player-card__teams";
-    const memberships = teamsForPlayer(player.id);
+    const memberships = teamsForPlayer(player);
     if (memberships.length) memberships.forEach((team) => {
       const chip = document.createElement("button"); chip.type = "button"; chip.className = "team-chip"; chip.append(logo(team, "team-logo team-logo--tiny"), document.createTextNode(team.name));
-      chip.addEventListener("click", () => openTeam(team.id)); teamLine.append(chip);
+      chip.addEventListener("click", (event) => { event.stopPropagation(); openTeam(team.id); }); teamLine.append(chip);
     }); else { const none = document.createElement("span"); none.className = "player-card__team"; none.textContent = "Unaffiliated"; teamLine.append(none); }
     const element = document.createElement("span"); element.className = `element element--${elementClass[player.element] || "neutral"}`;
     const symbol = document.createElement("span"); symbol.setAttribute("aria-hidden", "true"); symbol.textContent = elementSymbol[player.element] || "●"; element.append(symbol, ` ${player.element || "Unknown"}`);
-    body.append(meta, name, teamLine, element); article.append(portrait, body); return article;
+    body.append(meta, name, teamLine, element); article.append(portrait, body); article.tabIndex = 0; article.setAttribute("role", "button"); article.setAttribute("aria-label", `Open details for ${player.name}`); article.addEventListener("click", () => openPlayerDetail(player)); article.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openPlayerDetail(player); } }); return article;
+  }
+
+
+  function loadRatingRecords() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem("inazumaPlayerRatings") || "{}");
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch { return {}; }
+  }
+
+  function playerPortrait(player) {
+    return player.imageUrl || player.portraitUrl || player.portrait || player.avatar || "";
+  }
+
+  function playerFullbody(player) {
+    return player.frontFullbodyUrl || player.fullbodyUrl || playerPortrait(player);
+  }
+
+  function detailBadge(text, className = "player-detail__badge") {
+    const badge = document.createElement("span"); badge.className = className; badge.textContent = text; return badge;
+  }
+
+  function detailField(label, value) {
+    if (!value) return null;
+    const item = document.createElement("div"); item.className = "player-detail__field";
+    item.append(Object.assign(document.createElement("span"), { textContent: label }), Object.assign(document.createElement("strong"), { textContent: value }));
+    return item;
+  }
+
+  function ratingForDetail(player) {
+    const record = loadRatingRecords()[String(player.id)];
+    if (!record?.updatedAt) return null;
+    const ratingsApi = globalThis.InazumaPlayerRatings;
+    const overall = typeof ratingsApi?.overallFor === "function" ? ratingsApi.overallFor(player, record) : record.overall;
+    const category = typeof ratingsApi?.categoryFor === "function" ? ratingsApi.categoryFor(overall) : record.category;
+    return { record, overall, category };
+  }
+
+  function imageWithFallback(urls, alt, className) {
+    const box = document.createElement("div"); box.className = className;
+    const image = document.createElement("img"); image.alt = alt; image.loading = "lazy"; image.decoding = "async";
+    let index = 0;
+    const apply = () => {
+      const next = urls[index++];
+      if (next) { image.src = next; if (!image.parentNode) box.append(image); return; }
+      image.remove(); box.classList.add("is-placeholder"); box.textContent = alt.slice(0, 2).toUpperCase() || "?";
+    };
+    image.addEventListener("error", apply);
+    apply(); return box;
+  }
+
+
+  function teamMatchValues(team) {
+    return [team?.id, team?.name, ...(Array.isArray(team?.aliases) ? team.aliases : [])]
+      .map((value) => String(value ?? "").trim().toLocaleLowerCase())
+      .filter(Boolean);
+  }
+
+  function teamNameFromReference(reference) {
+    if (typeof reference === "string" || typeof reference === "number") return String(reference).trim();
+    return String(reference?.name || reference?.id || "").trim();
+  }
+
+  function teamForReference(reference) {
+    const value = teamNameFromReference(reference).toLocaleLowerCase();
+    if (!value) return null;
+    return teams.find((team) => teamMatchValues(team).includes(value)) || { id: "", name: teamNameFromReference(reference), logoUrl: "", aliases: [], missing: true };
+  }
+
+  function playerDetailTeams(player) {
+    const resolved = [...teamsForPlayer(player)];
+    (Array.isArray(player.teams) ? player.teams : []).map(teamForReference).filter(Boolean).forEach((team) => resolved.push(team));
+    const seen = new Set();
+    return resolved.filter((team) => {
+      const dedupeKey = String(team?.id || team?.name || "").trim().toLocaleLowerCase();
+      if (!dedupeKey || seen.has(dedupeKey)) return false;
+      seen.add(dedupeKey);
+      return true;
+    });
+  }
+
+  function detailTeamLogo(team) {
+    const logoBox = document.createElement("span"); logoBox.className = "player-detail__team-logo";
+    const fallback = () => { logoBox.replaceChildren(Object.assign(document.createElement("span"), { textContent: (team?.name || "?").slice(0, 2).toUpperCase() })); logoBox.classList.add("is-placeholder"); };
+    if (team?.logoUrl) {
+      const image = document.createElement("img"); image.src = team.logoUrl; image.alt = `${team.name} logo`; image.loading = "lazy"; image.decoding = "async"; image.addEventListener("error", fallback, { once: true }); logoBox.append(image);
+    } else fallback();
+    return logoBox;
+  }
+
+  function detailTeamCard(team, index) {
+    const card = document.createElement(team?.id ? "button" : "article"); card.className = `player-detail__team-card${team?.missing ? " is-fallback" : ""}`;
+    if (team?.id) { card.type = "button"; card.addEventListener("click", () => { nodes.playerDetailDialog.close(); openTeam(team.id); }); }
+    const text = document.createElement("span"); text.className = "player-detail__team-text";
+    text.append(Object.assign(document.createElement("strong"), { textContent: team?.name || "Squadra sconosciuta" }));
+    text.append(Object.assign(document.createElement("small"), { textContent: team?.missing ? "Nome dal profilo giocatore" : (index === 0 ? "Squadra" : "Altra squadra") }));
+    card.append(detailTeamLogo(team), text);
+    return card;
+  }
+
+  function openPlayerDetail(player) {
+    if (!nodes.playerDetailDialog || !nodes.playerDetailContent) return;
+    const fullbody = playerFullbody(player); const portrait = playerPortrait(player); const rating = ratingForDetail(player); const memberships = playerDetailTeams(player);
+    const close = document.createElement("button"); close.type = "button"; close.className = "player-detail__close"; close.setAttribute("aria-label", "Close player detail"); close.textContent = "×"; close.addEventListener("click", () => nodes.playerDetailDialog.close());
+    const art = document.createDocumentFragment();
+    const media = document.createElement("section"); media.className = "player-detail__media";
+    media.append(imageWithFallback([...new Set([fullbody, portrait].filter(Boolean))], `${player.name || "Player"} fullbody`, "player-detail__fullbody"));
+    media.append(imageWithFallback([portrait, fullbody].filter(Boolean), `${player.name || "Player"} portrait`, "player-detail__portrait"));
+    const info = document.createElement("section"); info.className = "player-detail__info";
+    const eyebrow = Object.assign(document.createElement("p"), { className: "eyebrow", textContent: player.custom ? "Custom player" : "Player detail" });
+    const title = Object.assign(document.createElement("h2"), { id: "player-detail-title", textContent: player.name || player.displayName || "Unnamed player" });
+    const nickname = player.nickname ? Object.assign(document.createElement("p"), { className: "player-detail__nickname", textContent: `Nickname: ${player.nickname}` }) : null;
+    const badges = document.createElement("div"); badges.className = "player-detail__badges";
+    badges.append(detailBadge(`ID ${player.id ?? "—"}`), detailBadge(player.position || player.role || "Ruolo —"), detailBadge(player.element || player.type || "Elemento —", `player-detail__badge element element--${elementClass[player.element || player.type] || "neutral"}`));
+    if (player.custom) badges.append(detailBadge("CUSTOM", "player-detail__badge player-detail__badge--custom"));
+    const ratingBox = document.createElement("section"); ratingBox.className = "player-detail__rating";
+    if (rating?.overall) {
+      ratingBox.append(Object.assign(document.createElement("strong"), { textContent: `OVR ${rating.overall}` }), Object.assign(document.createElement("span"), { textContent: rating.category || "Categoria —" }));
+      const statGrid = document.createElement("div"); statGrid.className = "player-detail__stats";
+      [["attack", "ATK"], ["physical", "PHY"], ["stamina", "STA"], ["control", "CON"], ["defense", "DEF"], ["speed", "SPD"], ["grit", "GRT"], ["save", "SAV"]].forEach(([key, label]) => statGrid.append(Object.assign(document.createElement("span"), { textContent: `${label} ${rating.record[key] ?? "—"}` })));
+      ratingBox.append(statGrid);
+    } else ratingBox.append(Object.assign(document.createElement("strong"), { textContent: "Non valutato" }));
+    const teamBox = document.createElement("div"); teamBox.className = `player-detail__teams${memberships.length === 1 ? " player-detail__teams--single" : ""}`;
+    if (memberships.length) memberships.forEach((team, index) => teamBox.append(detailTeamCard(team, index))); else teamBox.append(Object.assign(document.createElement("p"), { className: "player-detail__teams-empty", textContent: "Nessuna squadra disponibile" }));
+    const meta = document.createElement("div"); meta.className = "player-detail__meta";
+    [detailField("Game", player.game), detailField("Gender", player.gender), detailField("Role", player.characterRole), detailField("Age group", player.ageGroup), detailField("School year", player.schoolYear)].filter(Boolean).forEach((field) => meta.append(field));
+    const description = document.createElement("section"); description.className = "player-detail__description"; description.append(Object.assign(document.createElement("h3"), { textContent: "Descrizione" }), Object.assign(document.createElement("p"), { textContent: player.description || player.notes || "Nessuna descrizione disponibile." }));
+    const actions = document.createElement("div"); actions.className = "player-detail__actions";
+    const rate = document.createElement("button"); rate.type = "button"; rate.className = "button"; rate.textContent = "Valuta giocatore"; rate.addEventListener("click", () => { nodes.playerDetailDialog.close(); switchView("ratings"); });
+    actions.append(rate);
+    [eyebrow, title, nickname, badges, ratingBox, Object.assign(document.createElement("h3"), { textContent: "Squadre" }), teamBox, meta, description, actions].filter(Boolean).forEach((node) => info.append(node));
+    art.append(close, media, info); nodes.playerDetailContent.replaceChildren(art);
+    nodes.playerDetailDialog.showModal();
   }
 
   function pageItems(totalPages, current) {
@@ -143,17 +286,17 @@
   function rosterRow(player) {
     const row = document.createElement("div"); row.className = "roster-row";
     const person = document.createElement("span"); person.className = "roster-person";
-    const image = document.createElement("img"); image.src = player.imageUrl; image.alt = ""; image.loading = "lazy"; person.append(image, document.createTextNode(player.name));
+    const image = document.createElement("img"); image.src = player.imageUrl || player.portraitUrl || ""; image.alt = ""; image.loading = "lazy"; person.append(image, document.createTextNode(player.name));
     const move = document.createElement("select"); move.setAttribute("aria-label", `Move ${player.name}`); move.add(new Option("Move to…", "")); teams.filter((team) => team.id !== state.editingTeam.id).forEach((team) => move.add(new Option(team.name, team.id)));
-    move.addEventListener("change", () => { if (!move.value) return; const target = teamById().get(move.value); Store.removePlayer(state.editingTeam, player.id); Store.addPlayer(target, player.id); persist(); renderRoster(); renderTeams(); refreshTeamFilter(); renderPlayers(); });
-    const remove = document.createElement("button"); remove.type = "button"; remove.className = "icon-button"; remove.textContent = "Remove"; remove.addEventListener("click", () => { Store.removePlayer(state.editingTeam, player.id); renderRoster(); });
+    move.addEventListener("change", () => { if (!move.value) return; const target = teamById().get(move.value); Store.removePlayer(state.editingTeam, Number(player.id)); Store.addPlayer(target, player.id); persist(); renderRoster(); renderTeams(); refreshTeamFilter(); renderPlayers(); });
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "icon-button"; remove.textContent = "Remove"; remove.addEventListener("click", () => { Store.removePlayer(state.editingTeam, Number(player.id)); renderRoster(); });
     row.append(person, move, remove); return row;
   }
 
   function renderRoster() {
     const roster = teamPlayers(state.editingTeam); nodes.rosterCount.textContent = `${roster.length} players`;
     const fragment = document.createDocumentFragment(); roster.forEach((player) => fragment.append(rosterRow(player))); nodes.rosterList.replaceChildren(fragment);
-    nodes.addPlayer.replaceChildren(new Option("Choose a player…", "")); players.filter((player) => !state.editingTeam.playerIds.includes(Number(player.id))).sort((a, b) => collator.compare(a.name, b.name)).forEach((player) => nodes.addPlayer.add(new Option(player.name, player.id)));
+    nodes.addPlayer.replaceChildren(new Option("Choose a player…", "")); players.filter((player) => !player.custom && !state.editingTeam.playerIds.includes(Number(player.id))).sort((a, b) => collator.compare(a.name, b.name)).forEach((player) => nodes.addPlayer.add(new Option(player.name, player.id)));
   }
 
   function openTeam(id) {
@@ -166,7 +309,7 @@
     if (!state.editingTeam || !nodes.teamName.value.trim()) return;
     const editingId = state.editingTeam.id;
     state.editingTeam.name = nodes.teamName.value.trim(); state.editingTeam.logoUrl = nodes.logoUrl.value.trim(); state.editingTeam.aliases = uniqueSorted(nodes.aliases.value.split("\n").map((value) => value.trim())); state.editingTeam.notes = nodes.notes.value.trim();
-    teams = Store.hydrate(players, [], teams);
+    teams = Store.hydrate(officialPlayers, [], teams);
     state.editingTeam = teamById().get(editingId) || null;
     state.selectedTeams = new Set([...state.selectedTeams].filter((id) => teamById().has(id)));
     teams.sort((a, b) => collator.compare(a.name, b.name)); persist(); refreshTeamFilter(); renderTeams(); renderPlayers();
@@ -231,14 +374,14 @@
 
   function playerPill(player) {
     const item = document.createElement("span"); item.className = "selected-player";
-    const img = document.createElement("img"); img.src = player.imageUrl; img.alt = ""; img.loading = "lazy";
+    const img = document.createElement("img"); img.src = player.imageUrl || player.portraitUrl || ""; img.alt = ""; img.loading = "lazy";
     item.append(img, document.createTextNode(player.name)); return item;
   }
 
   function rosterPanel(team) {
     const panel = document.createElement("div"); panel.className = "selectable-team-roster";
     teamPlayers(team).forEach((player) => panel.append(playerPill(player)));
-    if (!team.playerIds.length) panel.textContent = "No players assigned to this team yet.";
+    if (!teamPlayers(team).length) panel.textContent = "No players assigned to this team yet.";
     return panel;
   }
 
@@ -294,13 +437,13 @@
     const fragment = document.createDocumentFragment();
     if (team) teamPlayers(team).forEach((player) => {
       const label = document.createElement("label"); label.className = "tournament-player";
-      const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = state.tournamentDraft.playerIds.includes(Number(player.id));
+      const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = state.tournamentDraft.playerIds.includes(player.id);
       checkbox.addEventListener("change", () => {
-        if (checkbox.checked) state.tournamentDraft.playerIds = [...new Set([...state.tournamentDraft.playerIds, Number(player.id)])];
-        else state.tournamentDraft.playerIds = state.tournamentDraft.playerIds.filter((id) => id !== Number(player.id));
+        if (checkbox.checked) state.tournamentDraft.playerIds = [...new Set([...state.tournamentDraft.playerIds, player.id])];
+        else state.tournamentDraft.playerIds = state.tournamentDraft.playerIds.filter((id) => id !== player.id);
         renderTournamentPicker();
       });
-      const img = document.createElement("img"); img.src = player.imageUrl; img.alt = ""; img.loading = "lazy";
+      const img = document.createElement("img"); img.src = player.imageUrl || player.portraitUrl || ""; img.alt = ""; img.loading = "lazy";
       const text = document.createElement("span"); text.innerHTML = `<strong></strong><small></small>`;
       text.querySelector("strong").textContent = player.name; text.querySelector("small").textContent = `${player.position || "—"} · ${player.element || "Unknown"}`;
       label.append(checkbox, img, text); fragment.append(label);
@@ -324,10 +467,10 @@
     actions.append(edit, remove); header.append(title, actions); panel.append(header);
     const list = document.createElement("div"); list.className = "selected-player-list";
     entry.playerIds.forEach((playerId) => {
-      const player = playerById.get(Number(playerId));
+      const player = playerById.get(String(playerId));
       const item = document.createElement("span"); item.className = "selected-player";
       if (!player) { item.textContent = `Missing player ${playerId}`; list.append(item); return; }
-      const img = document.createElement("img"); img.src = player.imageUrl; img.alt = ""; img.loading = "lazy";
+      const img = document.createElement("img"); img.src = player.imageUrl || player.portraitUrl || ""; img.alt = ""; img.loading = "lazy";
       item.append(img, document.createTextNode(player.name)); list.append(item);
     });
     panel.append(list); return panel;
@@ -380,6 +523,128 @@
     renderTournamentEditor();
   }
 
+
+
+  function customStorageMessage(error) {
+    if (error?.code === "CUSTOM_PLAYERS_QUOTA" || error?.name === "QuotaExceededError") return "Spazio locale pieno. Riduci l’immagine o carica una foto più leggera.";
+    if (error?.code === "CUSTOM_PLAYERS_TOO_LARGE") return "Dati custom troppo pesanti. Riduci le immagini o rimuovi alcuni custom players.";
+    if (error?.code === "CUSTOM_IMAGE_TOO_LARGE") return "Immagine troppo pesante. Scegli una foto più leggera o ridimensionala.";
+    return error?.message || "Impossibile salvare i custom players.";
+  }
+
+  function dataUrlBytes(dataUrl) { return Math.ceil(String(dataUrl || "").length * 0.75); }
+
+  function loadImageFromFile(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+      image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Impossibile leggere l’immagine selezionata.")); };
+      image.src = url;
+    });
+  }
+
+  async function compressCustomImage(file) {
+    if (!file) return "";
+    if (!file.type?.startsWith("image/")) throw new Error("Seleziona un file immagine valido.");
+    const image = await loadImageFromFile(file);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Compressione immagine non disponibile su questo browser.");
+    const attempts = [
+      { side: CUSTOM_IMAGE_MAX_SIDE, quality: CUSTOM_IMAGE_QUALITY, type: "image/webp" },
+      { side: CUSTOM_IMAGE_MAX_SIDE, quality: 0.72, type: "image/jpeg" },
+      { side: 512, quality: 0.72, type: "image/jpeg" },
+      { side: 512, quality: 0.62, type: "image/jpeg" },
+    ];
+    let best = "";
+    for (const attempt of attempts) {
+      const scale = Math.min(1, attempt.side / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+      canvas.width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+      canvas.height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL(attempt.type, attempt.quality);
+      best = !best || dataUrlBytes(dataUrl) < dataUrlBytes(best) ? dataUrl : best;
+      if (dataUrlBytes(dataUrl) <= CUSTOM_IMAGE_MAX_BYTES) return dataUrl;
+    }
+    const error = new Error("Immagine troppo pesante. Scegli una foto più leggera o ridimensionala.");
+    error.code = "CUSTOM_IMAGE_TOO_LARGE";
+    error.bytes = dataUrlBytes(best);
+    throw error;
+  }
+
+  function trySaveCustomPlayers(nextPlayers) {
+    const result = CustomPlayers.save(nextPlayers, localStorage);
+    customPlayers = [...nextPlayers];
+    if (result?.warning) nodes.customFeedback.textContent = "Salvato, ma i dati custom sono grandi: valuta immagini più leggere.";
+    return result;
+  }
+
+  function customTeamOptions() {
+    nodes.customTeams?.replaceChildren();
+    teams.forEach((team) => nodes.customTeams.add(new Option(team.name, team.id)));
+  }
+
+  function customFormData(id) {
+    const firstName = nodes.customFirstName.value.trim();
+    const lastName = nodes.customLastName.value.trim();
+    const displayName = nodes.customDisplayName.value.trim() || [firstName, lastName].filter(Boolean).join(" ");
+    const selectedTeams = [...nodes.customTeams.selectedOptions].map((option) => option.value);
+    const previous = customPlayers.find((player) => player.id === id) || {};
+    return CustomPlayers.normalize({ ...previous, id: id || CustomPlayers.nextId(customPlayers), firstName, lastName, displayName, name: displayName, position: nodes.customPosition.value, element: nodes.customElement.value, portraitUrl: customPortraitDataUrl || previous.portraitUrl || "", teams: selectedTeams, teamIds: selectedTeams, notes: nodes.customNotes.value }, { keepId: Boolean(id), existing: customPlayers.filter((player) => player.id !== id) });
+  }
+
+  let customPortraitDataUrl = "";
+  function renderCustomPreview() {
+    const id = nodes.customEditId.value || CustomPlayers.nextId(customPlayers);
+    const player = customFormData(id) || { id, name: "Anteprima", position: nodes.customPosition.value, element: nodes.customElement.value, portraitUrl: customPortraitDataUrl };
+    nodes.customGeneratedId.textContent = `ID generato automaticamente: ${id}`;
+    const card = playerCard(player); card.classList.add("custom-preview-card"); nodes.customPreview.replaceChildren(card);
+  }
+
+  function renderCustomPlayers() {
+    refreshPlayersCache(); customTeamOptions(); renderCustomPreview();
+    if (CustomPlayers?.lastLoadError?.()) nodes.customFeedback.textContent = "Dati custom corrotti ignorati. Puoi usare “Reset custom players locali” per pulire solo i custom players.";
+    const fragment = document.createDocumentFragment();
+    customPlayers.forEach((player) => {
+      const card = document.createElement("article"); card.className = "custom-player-card";
+      const img = document.createElement("img"); const src = player.portraitUrl || player.imageUrl || ""; if (src) img.src = src; img.alt = ""; img.loading = "lazy"; img.decoding = "async"; img.addEventListener("error", () => { img.removeAttribute("src"); img.classList.add("is-placeholder"); }, { once: true });
+      const info = document.createElement("div"); const title = document.createElement("strong"); title.textContent = player.name;
+      const meta = document.createElement("small"); const teamNames = teamsForPlayer(player).map((team) => team.name).join(", ") || "Svincolato"; meta.textContent = `${player.id} · ${player.position} · ${player.element} · ${teamNames}`;
+      info.append(title, meta);
+      const actions = document.createElement("div"); actions.className = "card-actions";
+      const edit = document.createElement("button"); edit.type = "button"; edit.className = "button"; edit.textContent = "Modifica"; edit.addEventListener("click", () => editCustomPlayer(player.id));
+      const del = document.createElement("button"); del.type = "button"; del.className = "button button--danger"; del.textContent = "Elimina"; del.addEventListener("click", () => deleteCustomPlayer(player.id));
+      actions.append(edit, del); card.append(img, info, actions); fragment.append(card);
+    });
+    if (!customPlayers.length) fragment.append(Object.assign(document.createElement("p"), { className: "picker-empty", textContent: "Nessun custom player creato." }));
+    nodes.customList.replaceChildren(fragment);
+  }
+
+  function resetCustomForm() { nodes.customForm.reset(); nodes.customEditId.value = ""; customPortraitDataUrl = ""; nodes.customCancel.hidden = true; renderCustomPlayers(); }
+  function saveCustomPlayer(event) {
+    event.preventDefault();
+    const id = nodes.customEditId.value;
+    const player = customFormData(id);
+    if (!player) return;
+    const nextPlayers = [...customPlayers];
+    const index = nextPlayers.findIndex((item) => item.id === player.id);
+    if (index >= 0) nextPlayers[index] = player; else nextPlayers.push(player);
+    try {
+      trySaveCustomPlayers(nextPlayers);
+      const message = `Salvato ${player.name} (${player.id}).`;
+      resetCustomForm(); nodes.customFeedback.textContent = message; refreshAllAfterCustomChange();
+    } catch (error) { nodes.customFeedback.textContent = customStorageMessage(error); }
+  }
+  function editCustomPlayer(id) { const player = customPlayers.find((item) => item.id === id); if (!player) return; nodes.customEditId.value = player.id; nodes.customFirstName.value = player.firstName || ""; nodes.customLastName.value = player.lastName || ""; nodes.customDisplayName.value = player.displayName || player.name || ""; nodes.customPosition.value = player.position || "MF"; nodes.customElement.value = player.element || "Wind"; customPortraitDataUrl = player.portraitUrl || ""; nodes.customNotes.value = player.notes || ""; [...nodes.customTeams.options].forEach((option) => { option.selected = player.teamIds.includes(option.value) || player.teams.includes(option.value); }); nodes.customCancel.hidden = false; renderCustomPreview(); }
+  function deleteCustomPlayer(id) { const player = customPlayers.find((item) => item.id === id); if (!player || !confirm(`Eliminare ${player.name}?`)) return; const nextPlayers = customPlayers.filter((item) => item.id !== id); try { trySaveCustomPlayers(nextPlayers); CustomPlayers.removeRating(id, localStorage); resetCustomForm(); nodes.customFeedback.textContent = `Eliminato ${player.name}.`; refreshAllAfterCustomChange(); } catch (error) { nodes.customFeedback.textContent = customStorageMessage(error); } }
+  function refreshAllAfterCustomChange() { refreshPlayersCache(); renderPlayers(); renderTeams(); globalThis.InazumaPlayerRatings?.refresh?.(); globalThis.InazumaPlayerRatings?.render?.(); globalThis.InazumaFullTeamChampionships?.render?.(); }
+  function exportCustomPlayers() { download("custom-players.json", JSON.stringify(customPlayers, null, 2)); }
+  function importCustomPlayers(file) { if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const payload = JSON.parse(String(reader.result || "[]")); const records = Array.isArray(payload) ? payload : []; let imported = 0; const nextPlayers = [...customPlayers]; records.forEach((record) => { const normalized = CustomPlayers.normalize(record, { keepId: true, existing: nextPlayers }); if (!normalized) return; if (nextPlayers.some((p) => p.id === normalized.id) || officialPlayers.some((p) => String(p.id) === normalized.id || String(p.playerId) === normalized.id)) normalized.id = normalized.playerId = CustomPlayers.nextId(nextPlayers); nextPlayers.push(normalized); imported += 1; }); trySaveCustomPlayers(nextPlayers); const message = `Import completato: ${imported} custom players.`; resetCustomForm(); nodes.customFeedback.textContent = message; refreshAllAfterCustomChange(); } catch (error) { nodes.customFeedback.textContent = `Import fallito: ${customStorageMessage(error)}`; } nodes.customImport.value = ""; }; reader.readAsText(file); }
+  function resetCustomPlayersOnly() { if (!confirm("Vuoi eliminare solo i giocatori personalizzati locali? I rating non verranno cancellati.")) return; try { CustomPlayers.reset(localStorage); customPlayers = []; resetCustomForm(); nodes.customFeedback.textContent = "Custom players locali eliminati. I rating non sono stati cancellati."; refreshAllAfterCustomChange(); } catch (error) { nodes.customFeedback.textContent = `Reset fallito: ${error.message}`; } }
+
+  nodes.playerDetailDialog?.addEventListener("click", (event) => { if (event.target === nodes.playerDetailDialog) nodes.playerDetailDialog.close(); });
   nodes.tabs.forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
   uniqueSorted(players.map((player) => player.position)).forEach((value) => nodes.position.add(new Option(value, value)));
   uniqueSorted(players.map((player) => player.element)).forEach((value) => nodes.element.add(new Option(value, value)));
@@ -396,7 +661,8 @@
   nodes.tournamentTeamSearch.addEventListener("input", renderTournamentPicker);
   nodes.addTournamentTeam.addEventListener("click", confirmTournamentTeam);
   nodes.tournamentForm.addEventListener("submit", (event) => { if (event.submitter?.value === "default") saveTournament(); });
+  nodes.customForm?.addEventListener("submit", saveCustomPlayer); nodes.customCancel?.addEventListener("click", resetCustomForm); [nodes.customFirstName, nodes.customLastName, nodes.customDisplayName, nodes.customPosition, nodes.customElement, nodes.customNotes, nodes.customTeams].forEach((node) => node?.addEventListener("input", renderCustomPreview)); nodes.customTeams?.addEventListener("change", renderCustomPreview); nodes.customPortrait?.addEventListener("change", async () => { const file = nodes.customPortrait.files?.[0]; if (!file) return; try { nodes.customFeedback.textContent = "Ottimizzo immagine…"; customPortraitDataUrl = await compressCustomImage(file); nodes.customFeedback.textContent = `Immagine ottimizzata (${Math.round(dataUrlBytes(customPortraitDataUrl) / 1024)} KB).`; renderCustomPreview(); } catch (error) { nodes.customPortrait.value = ""; nodes.customFeedback.textContent = customStorageMessage(error); } }); nodes.customExport?.addEventListener("click", exportCustomPlayers); nodes.customImport?.addEventListener("change", () => importCustomPlayers(nodes.customImport.files?.[0])); nodes.customReset?.addEventListener("click", resetCustomPlayersOnly);
   nodes.tournamentName.addEventListener("input", () => { if (!state.editingTournament) return; state.editingTournament.name = nodes.tournamentName.value; nodes.tournamentTitle.textContent = nodes.tournamentName.value || "Mini Tournament"; if (nodes.tournamentName.value.trim()) upsertEditingTournament(); });
   nodes.deleteTournament.addEventListener("click", () => { if (!state.editingTournament || !window.confirm(`Delete “${state.editingTournament.name}”?`)) return; tournaments = tournaments.filter((item) => item.id !== state.editingTournament.id); persistTournaments(); nodes.tournamentDialog.close(); renderTournaments(); });
-  renderPlayers(); renderTeams(); renderTournaments();
+  renderPlayers(); renderTeams(); renderTournaments(); renderCustomPlayers();
 })();
