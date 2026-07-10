@@ -26,7 +26,7 @@
     addPlayer: $("#add-player"), addPlayerButton: $("#add-player-button"), rosterList: $("#roster-list"), rosterCount: $("#roster-count"),
     mergeDialog: $("#merge-dialog"), mergeSummary: $("#merge-summary"), mergeTarget: $("#merge-target"), confirmMerge: $("#confirm-merge"),
     tournamentGrid: $("#tournament-grid"), tournamentCount: $("#tournament-count"), createTournament: $("#create-tournament"), exportTournaments: $("#export-tournaments"),
-    customForm: $("#custom-player-form"), customEditId: $("#custom-edit-id"), customGeneratedId: $("#custom-generated-id"), customFirstName: $("#custom-first-name"), customLastName: $("#custom-last-name"), customDisplayName: $("#custom-display-name"), customPosition: $("#custom-position"), customElement: $("#custom-element"), customPortrait: $("#custom-portrait"), customTeams: $("#custom-teams"), customNotes: $("#custom-notes"), customPreview: $("#custom-preview"), customFeedback: $("#custom-feedback"), customList: $("#custom-player-list"), customCancel: $("#custom-cancel-edit"), customExport: $("#export-custom-players"), customImport: $("#import-custom-players"),
+    customForm: $("#custom-player-form"), customEditId: $("#custom-edit-id"), customGeneratedId: $("#custom-generated-id"), customFirstName: $("#custom-first-name"), customLastName: $("#custom-last-name"), customDisplayName: $("#custom-display-name"), customPosition: $("#custom-position"), customElement: $("#custom-element"), customPortrait: $("#custom-portrait"), customTeams: $("#custom-teams"), customNotes: $("#custom-notes"), customPreview: $("#custom-preview"), customFeedback: $("#custom-feedback"), customList: $("#custom-player-list"), customCancel: $("#custom-cancel-edit"), customExport: $("#export-custom-players"), customImport: $("#import-custom-players"), customReset: $("#reset-custom-players"),
     tournamentDialog: $("#tournament-dialog"), tournamentForm: $("#tournament-form"), tournamentTitle: $("#tournament-title"), tournamentId: $("#tournament-id"), tournamentName: $("#tournament-name"), tournamentTeamSearch: $("#tournament-team-search"), tournamentTeamCards: $("#tournament-team-cards"), addTournamentTeam: $("#add-tournament-team"), tournamentPicker: $("#tournament-player-picker"), tournamentPickerMessage: $("#tournament-picker-message"), tournamentPanels: $("#tournament-team-panels"), tournamentErrors: $("#tournament-errors"), deleteTournament: $("#delete-tournament"),
   };
 
@@ -37,6 +37,9 @@
   const persistTournaments = () => Tournaments.save(localStorage, tournaments);
   const playerNumericId = (player) => Number(player?.id);
   function refreshPlayersCache() { customPlayers = CustomPlayers?.load(localStorage) || []; players = [...officialPlayers, ...customPlayers]; playerById = new Map(players.map((player) => [String(player.id), player])); }
+  const CUSTOM_IMAGE_MAX_BYTES = 500 * 1024;
+  const CUSTOM_IMAGE_MAX_SIDE = 768;
+  const CUSTOM_IMAGE_QUALITY = 0.78;
   const teamPlayers = (team) => { const official = team.playerIds.map((id) => playerById.get(String(id))).filter(Boolean); const custom = CustomPlayers?.customPlayersForTeam(team, customPlayers) || []; return [...official, ...custom].sort((a, b) => collator.compare(a.name, b.name)); };
   const teamsForPlayer = (player) => teams.filter((team) => { const numeric = playerNumericId(player); return (Number.isFinite(numeric) && team.playerIds.includes(numeric)) || CustomPlayers?.isPlayerInTeam(player, team); });
 
@@ -473,6 +476,63 @@
   }
 
 
+
+  function customStorageMessage(error) {
+    if (error?.code === "CUSTOM_PLAYERS_QUOTA" || error?.name === "QuotaExceededError") return "Spazio locale pieno. Riduci l’immagine o carica una foto più leggera.";
+    if (error?.code === "CUSTOM_PLAYERS_TOO_LARGE") return "Dati custom troppo pesanti. Riduci le immagini o rimuovi alcuni custom players.";
+    if (error?.code === "CUSTOM_IMAGE_TOO_LARGE") return "Immagine troppo pesante. Scegli una foto più leggera o ridimensionala.";
+    return error?.message || "Impossibile salvare i custom players.";
+  }
+
+  function dataUrlBytes(dataUrl) { return Math.ceil(String(dataUrl || "").length * 0.75); }
+
+  function loadImageFromFile(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+      image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Impossibile leggere l’immagine selezionata.")); };
+      image.src = url;
+    });
+  }
+
+  async function compressCustomImage(file) {
+    if (!file) return "";
+    if (!file.type?.startsWith("image/")) throw new Error("Seleziona un file immagine valido.");
+    const image = await loadImageFromFile(file);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Compressione immagine non disponibile su questo browser.");
+    const attempts = [
+      { side: CUSTOM_IMAGE_MAX_SIDE, quality: CUSTOM_IMAGE_QUALITY, type: "image/webp" },
+      { side: CUSTOM_IMAGE_MAX_SIDE, quality: 0.72, type: "image/jpeg" },
+      { side: 512, quality: 0.72, type: "image/jpeg" },
+      { side: 512, quality: 0.62, type: "image/jpeg" },
+    ];
+    let best = "";
+    for (const attempt of attempts) {
+      const scale = Math.min(1, attempt.side / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+      canvas.width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+      canvas.height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL(attempt.type, attempt.quality);
+      best = !best || dataUrlBytes(dataUrl) < dataUrlBytes(best) ? dataUrl : best;
+      if (dataUrlBytes(dataUrl) <= CUSTOM_IMAGE_MAX_BYTES) return dataUrl;
+    }
+    const error = new Error("Immagine troppo pesante. Scegli una foto più leggera o ridimensionala.");
+    error.code = "CUSTOM_IMAGE_TOO_LARGE";
+    error.bytes = dataUrlBytes(best);
+    throw error;
+  }
+
+  function trySaveCustomPlayers(nextPlayers) {
+    const result = CustomPlayers.save(nextPlayers, localStorage);
+    customPlayers = [...nextPlayers];
+    if (result?.warning) nodes.customFeedback.textContent = "Salvato, ma i dati custom sono grandi: valuta immagini più leggere.";
+    return result;
+  }
+
   function customTeamOptions() {
     nodes.customTeams?.replaceChildren();
     teams.forEach((team) => nodes.customTeams.add(new Option(team.name, team.id)));
@@ -497,10 +557,11 @@
 
   function renderCustomPlayers() {
     refreshPlayersCache(); customTeamOptions(); renderCustomPreview();
+    if (CustomPlayers?.lastLoadError?.()) nodes.customFeedback.textContent = "Dati custom corrotti ignorati. Puoi usare “Reset custom players locali” per pulire solo i custom players.";
     const fragment = document.createDocumentFragment();
     customPlayers.forEach((player) => {
       const card = document.createElement("article"); card.className = "custom-player-card";
-      const img = document.createElement("img"); img.src = player.portraitUrl || player.imageUrl || ""; img.alt = ""; img.loading = "lazy";
+      const img = document.createElement("img"); const src = player.portraitUrl || player.imageUrl || ""; if (src) img.src = src; img.alt = ""; img.loading = "lazy"; img.decoding = "async"; img.addEventListener("error", () => { img.removeAttribute("src"); img.classList.add("is-placeholder"); }, { once: true });
       const info = document.createElement("div"); const title = document.createElement("strong"); title.textContent = player.name;
       const meta = document.createElement("small"); const teamNames = teamsForPlayer(player).map((team) => team.name).join(", ") || "Svincolato"; meta.textContent = `${player.id} · ${player.position} · ${player.element} · ${teamNames}`;
       info.append(title, meta);
@@ -514,12 +575,26 @@
   }
 
   function resetCustomForm() { nodes.customForm.reset(); nodes.customEditId.value = ""; customPortraitDataUrl = ""; nodes.customCancel.hidden = true; renderCustomPlayers(); }
-  function saveCustomPlayer(event) { event.preventDefault(); const id = nodes.customEditId.value; const player = customFormData(id); if (!player) return; const index = customPlayers.findIndex((item) => item.id === player.id); if (index >= 0) customPlayers[index] = player; else customPlayers.push(player); CustomPlayers.save(customPlayers, localStorage); nodes.customFeedback.textContent = `Salvato ${player.name} (${player.id}).`; resetCustomForm(); refreshAllAfterCustomChange(); }
+  function saveCustomPlayer(event) {
+    event.preventDefault();
+    const id = nodes.customEditId.value;
+    const player = customFormData(id);
+    if (!player) return;
+    const nextPlayers = [...customPlayers];
+    const index = nextPlayers.findIndex((item) => item.id === player.id);
+    if (index >= 0) nextPlayers[index] = player; else nextPlayers.push(player);
+    try {
+      trySaveCustomPlayers(nextPlayers);
+      const message = `Salvato ${player.name} (${player.id}).`;
+      resetCustomForm(); nodes.customFeedback.textContent = message; refreshAllAfterCustomChange();
+    } catch (error) { nodes.customFeedback.textContent = customStorageMessage(error); }
+  }
   function editCustomPlayer(id) { const player = customPlayers.find((item) => item.id === id); if (!player) return; nodes.customEditId.value = player.id; nodes.customFirstName.value = player.firstName || ""; nodes.customLastName.value = player.lastName || ""; nodes.customDisplayName.value = player.displayName || player.name || ""; nodes.customPosition.value = player.position || "MF"; nodes.customElement.value = player.element || "Wind"; customPortraitDataUrl = player.portraitUrl || ""; nodes.customNotes.value = player.notes || ""; [...nodes.customTeams.options].forEach((option) => { option.selected = player.teamIds.includes(option.value) || player.teams.includes(option.value); }); nodes.customCancel.hidden = false; renderCustomPreview(); }
-  function deleteCustomPlayer(id) { const player = customPlayers.find((item) => item.id === id); if (!player || !confirm(`Eliminare ${player.name}?`)) return; customPlayers = customPlayers.filter((item) => item.id !== id); CustomPlayers.save(customPlayers, localStorage); CustomPlayers.removeRating(id, localStorage); resetCustomForm(); refreshAllAfterCustomChange(); }
+  function deleteCustomPlayer(id) { const player = customPlayers.find((item) => item.id === id); if (!player || !confirm(`Eliminare ${player.name}?`)) return; const nextPlayers = customPlayers.filter((item) => item.id !== id); try { trySaveCustomPlayers(nextPlayers); CustomPlayers.removeRating(id, localStorage); resetCustomForm(); nodes.customFeedback.textContent = `Eliminato ${player.name}.`; refreshAllAfterCustomChange(); } catch (error) { nodes.customFeedback.textContent = customStorageMessage(error); } }
   function refreshAllAfterCustomChange() { refreshPlayersCache(); renderPlayers(); renderTeams(); globalThis.InazumaPlayerRatings?.refresh?.(); globalThis.InazumaPlayerRatings?.render?.(); globalThis.InazumaFullTeamChampionships?.render?.(); }
   function exportCustomPlayers() { download("custom-players.json", JSON.stringify(customPlayers, null, 2)); }
-  function importCustomPlayers(file) { if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const payload = JSON.parse(String(reader.result || "[]")); const records = Array.isArray(payload) ? payload : []; let imported = 0; records.forEach((record) => { const normalized = CustomPlayers.normalize(record, { keepId: true, existing: customPlayers }); if (!normalized) return; if (customPlayers.some((p) => p.id === normalized.id) || officialPlayers.some((p) => String(p.id) === normalized.id || String(p.playerId) === normalized.id)) normalized.id = normalized.playerId = CustomPlayers.nextId(customPlayers); customPlayers.push(normalized); imported += 1; }); CustomPlayers.save(customPlayers, localStorage); nodes.customFeedback.textContent = `Import completato: ${imported} custom players.`; resetCustomForm(); refreshAllAfterCustomChange(); } catch (error) { nodes.customFeedback.textContent = `Import fallito: ${error.message}`; } nodes.customImport.value = ""; }; reader.readAsText(file); }
+  function importCustomPlayers(file) { if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const payload = JSON.parse(String(reader.result || "[]")); const records = Array.isArray(payload) ? payload : []; let imported = 0; const nextPlayers = [...customPlayers]; records.forEach((record) => { const normalized = CustomPlayers.normalize(record, { keepId: true, existing: nextPlayers }); if (!normalized) return; if (nextPlayers.some((p) => p.id === normalized.id) || officialPlayers.some((p) => String(p.id) === normalized.id || String(p.playerId) === normalized.id)) normalized.id = normalized.playerId = CustomPlayers.nextId(nextPlayers); nextPlayers.push(normalized); imported += 1; }); trySaveCustomPlayers(nextPlayers); const message = `Import completato: ${imported} custom players.`; resetCustomForm(); nodes.customFeedback.textContent = message; refreshAllAfterCustomChange(); } catch (error) { nodes.customFeedback.textContent = `Import fallito: ${customStorageMessage(error)}`; } nodes.customImport.value = ""; }; reader.readAsText(file); }
+  function resetCustomPlayersOnly() { if (!confirm("Vuoi eliminare solo i giocatori personalizzati locali? I rating non verranno cancellati.")) return; try { CustomPlayers.reset(localStorage); customPlayers = []; resetCustomForm(); nodes.customFeedback.textContent = "Custom players locali eliminati. I rating non sono stati cancellati."; refreshAllAfterCustomChange(); } catch (error) { nodes.customFeedback.textContent = `Reset fallito: ${error.message}`; } }
 
   nodes.playerDetailDialog?.addEventListener("click", (event) => { if (event.target === nodes.playerDetailDialog) nodes.playerDetailDialog.close(); });
   nodes.tabs.forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
@@ -538,7 +613,7 @@
   nodes.tournamentTeamSearch.addEventListener("input", renderTournamentPicker);
   nodes.addTournamentTeam.addEventListener("click", confirmTournamentTeam);
   nodes.tournamentForm.addEventListener("submit", (event) => { if (event.submitter?.value === "default") saveTournament(); });
-  nodes.customForm?.addEventListener("submit", saveCustomPlayer); nodes.customCancel?.addEventListener("click", resetCustomForm); [nodes.customFirstName, nodes.customLastName, nodes.customDisplayName, nodes.customPosition, nodes.customElement, nodes.customNotes, nodes.customTeams].forEach((node) => node?.addEventListener("input", renderCustomPreview)); nodes.customTeams?.addEventListener("change", renderCustomPreview); nodes.customPortrait?.addEventListener("change", () => { const file = nodes.customPortrait.files?.[0]; if (!file) return; if (file.size > 1024 * 1024) nodes.customFeedback.textContent = "Attenzione: immagine grande, localStorage potrebbe riempirsi."; const reader = new FileReader(); reader.onload = () => { customPortraitDataUrl = String(reader.result || ""); renderCustomPreview(); }; reader.readAsDataURL(file); }); nodes.customExport?.addEventListener("click", exportCustomPlayers); nodes.customImport?.addEventListener("change", () => importCustomPlayers(nodes.customImport.files?.[0]));
+  nodes.customForm?.addEventListener("submit", saveCustomPlayer); nodes.customCancel?.addEventListener("click", resetCustomForm); [nodes.customFirstName, nodes.customLastName, nodes.customDisplayName, nodes.customPosition, nodes.customElement, nodes.customNotes, nodes.customTeams].forEach((node) => node?.addEventListener("input", renderCustomPreview)); nodes.customTeams?.addEventListener("change", renderCustomPreview); nodes.customPortrait?.addEventListener("change", async () => { const file = nodes.customPortrait.files?.[0]; if (!file) return; try { nodes.customFeedback.textContent = "Ottimizzo immagine…"; customPortraitDataUrl = await compressCustomImage(file); nodes.customFeedback.textContent = `Immagine ottimizzata (${Math.round(dataUrlBytes(customPortraitDataUrl) / 1024)} KB).`; renderCustomPreview(); } catch (error) { nodes.customPortrait.value = ""; nodes.customFeedback.textContent = customStorageMessage(error); } }); nodes.customExport?.addEventListener("click", exportCustomPlayers); nodes.customImport?.addEventListener("change", () => importCustomPlayers(nodes.customImport.files?.[0])); nodes.customReset?.addEventListener("click", resetCustomPlayersOnly);
   nodes.tournamentName.addEventListener("input", () => { if (!state.editingTournament) return; state.editingTournament.name = nodes.tournamentName.value; nodes.tournamentTitle.textContent = nodes.tournamentName.value || "Mini Tournament"; if (nodes.tournamentName.value.trim()) upsertEditingTournament(); });
   nodes.deleteTournament.addEventListener("click", () => { if (!state.editingTournament || !window.confirm(`Delete “${state.editingTournament.name}”?`)) return; tournaments = tournaments.filter((item) => item.id !== state.editingTournament.id); persistTournaments(); nodes.tournamentDialog.close(); renderTournaments(); });
   renderPlayers(); renderTeams(); renderTournaments(); renderCustomPlayers();

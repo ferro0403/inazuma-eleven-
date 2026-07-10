@@ -1367,3 +1367,8 @@ dialog::backdrop { background: rgba(3,20,37,.7); backdrop-filter: blur(3px); }
   .player-detail__field { padding: 8px; }
   .player-detail__description { padding: 11px; }
 }
+
+.custom-player-card img.is-placeholder {
+  background: linear-gradient(135deg, rgba(255, 194, 14, 0.2), rgba(38, 44, 78, 0.85));
+  border: 1px dashed rgba(255, 255, 255, 0.24);
+}
