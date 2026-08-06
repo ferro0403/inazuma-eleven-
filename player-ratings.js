@@ -74,7 +74,7 @@
     try {
       const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-      return Object.fromEntries(Object.entries(parsed).map(([id, record]) => [id, normalizeRating(record, originalRoleCode(playerById?.get?.(String(id))))]));
+      return Object.fromEntries(Object.entries(parsed).map(([id, record]) => [id, normalizeRatingForPlayer(id, record)]));
     } catch { return {}; }
   }
 
@@ -155,9 +155,13 @@
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
+  function ratingTimestamp(record) {
+    return Math.max(timestampValue(record?.updatedAt), timestampValue(record?.clientUpdatedAt));
+  }
+
   function shouldUseIncoming(existing, incoming) {
-    const existingTime = timestampValue(existing?.updatedAt);
-    const incomingTime = timestampValue(incoming?.updatedAt);
+    const existingTime = ratingTimestamp(existing);
+    const incomingTime = ratingTimestamp(incoming);
     if (existingTime && incomingTime) return incomingTime >= existingTime;
     if (incomingTime && !existingTime) return true;
     if (!existingTime && !incomingTime && !existing) return true;
@@ -166,19 +170,24 @@
 
   function refreshPlayerCache() { customPlayers = CustomPlayers?.load(localStorage) || []; players = [...officialPlayers, ...customPlayers]; playerById = new Map(players.map((player) => [String(player.id), player])); }
 
-  function mergeRatingRecord(playerIdValue, record, { forceRemote = false } = {}) {
+  function mergeRatingRecord(playerIdValue, record) {
     const id = String(playerIdValue || record?.playerId || "");
     if (!id || !record || !playerById.has(id)) return false;
-    const normalized = normalizeRating(record);
+    const normalized = { ...record, ...normalizeRatingForPlayer(id, record) };
     normalized.playerId = id;
     if (record.updatedBy) normalized.updatedBy = clean(record.updatedBy);
     if (record.clientUpdatedAt) normalized.clientUpdatedAt = updatedAtString(record.clientUpdatedAt);
     const previous = ratings[id];
-    if (forceRemote || shouldUseIncoming(previous, normalized)) {
+    if (shouldUseIncoming(previous, normalized)) {
       ratings[id] = normalized;
       return JSON.stringify(previous || null) !== JSON.stringify(normalized);
     }
     return false;
+  }
+
+  function mergeRemoteRatingRecord(playerIdValue, record) {
+    const id = String(playerIdValue || record?.playerId || "");
+    return pendingSync[id]?.operation === "set" ? false : mergeRatingRecord(id, record);
   }
 
   function syncClass(status) {
@@ -293,6 +302,11 @@
     return normalized;
   }
 
+  function normalizeRatingForPlayer(playerIdValue, record = {}) {
+    const player = playerById.get(String(playerIdValue));
+    return normalizeRating(record, player ? originalRoleCode(player) : "MF");
+  }
+
   function draftRating(player) {
     const saved = ratings[playerId(player)];
     const record = saved ? normalizeRating(saved, roleCode(player)) : normalizeRating({ position: roleCode(player), evaluated: false }, roleCode(player));
@@ -305,6 +319,14 @@
     editorDraftPlayerId = playerId(player);
     editorDraft = { ...draftRating(player) };
     generatorMessage = "";
+  }
+
+
+  function resetEditorForPlayer(player) {
+    activeRoleVariantId = "";
+    editorDraft = null;
+    editorDraftPlayerId = "";
+    if (player) resetEditorDraft(player);
   }
 
   function currentEditorRating(player) {
@@ -829,7 +851,7 @@
       const progress = document.createElement("small"); progress.textContent = `${summary.ratedPlayers}/${summary.totalPlayers}`;
       const overall = document.createElement("small"); overall.textContent = summary.teamOverall === null ? "OVR -- · ★ --" : `OVR ${summary.teamOverall} · ★ ${summary.teamStars}`;
       text.append(name, id, progress, overall); button.append(text);
-      button.addEventListener("click", () => { selectedTeamId = team.id; selectedPlayerId = ""; completionMessage = ""; teamsCollapsed = true; render(); });
+      button.addEventListener("click", () => { selectedTeamId = team.id; selectedPlayerId = ""; resetEditorForPlayer(null); completionMessage = ""; teamsCollapsed = true; render(); });
       fragment.append(button);
     });
     nodes.teams.replaceChildren(fragment);
@@ -893,7 +915,7 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
     ids.forEach((id) => { delete ratings[id]; });
     persistRatings();
     queueRatingsSync(ids, "delete");
-    if (ids.includes(selectedPlayerId)) { selectedPlayerId = ""; editorDraft = null; editorDraftPlayerId = ""; }
+    if (ids.includes(selectedPlayerId)) { selectedPlayerId = ""; resetEditorForPlayer(null); }
     autoReport = `Rating rimossi per ${ids.length} giocatori della squadra ${team.name || team.id}.`;
     updateSyncStatus(canUseFirestore() ? "Rimozione rating squadra in sincronizzazione" : "Rating squadra rimossi localmente · sync in attesa");
     void flushPendingSync();
@@ -959,7 +981,8 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
     const now = new Date().toISOString();
     const existing = normalizeRating(ratings[id] || { position: rating.position || roleCode(player) }, roleCode(player));
     const savedVariant = normalizeVariant({ ...rating, overall: overallForRole(rating.position, rating), evaluated: true, updatedAt: now }, rating.position);
-    const roleVariants = existing.roleVariants.map((variant) => variant.variantId === activeRoleVariantId ? savedVariant : variant);
+    const draftVariantId = clean(rating?.variantId).toLowerCase();
+    const roleVariants = existing.roleVariants.map((variant) => variant.variantId === draftVariantId ? savedVariant : variant);
     if (!roleVariants.some((variant) => variant.variantId === savedVariant.variantId)) roleVariants.push(savedVariant);
     ratings[id] = { ...normalizeRating({ ...existing, roleVariants, defaultRoleVariantId: existing.defaultRoleVariantId, updatedAt: now }), playerId: id, autoGenerated: false, generatedFromOverall: Boolean(rating.generatedFromOverall), updatedAt: now, clientUpdatedAt: now, updatedBy: syncState.evaluatorName || "Utente" };
     activeRoleVariantId = savedVariant.variantId;
@@ -974,6 +997,8 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
     const calculatedOverall = normalized.overall;
     const payload = {
       playerId: String(id),
+      position: normalized.position,
+      evaluated: normalized.evaluated,
       ...Object.fromEntries(STAT_DEFS.map(([stat]) => [stat, normalized[stat]])),
       overall: calculatedOverall,
       category: categoryFor(calculatedOverall),
@@ -994,7 +1019,7 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
 
 
   function openPlayer(player) {
-    selectedPlayerId = playerId(player); activeRoleVariantId = ""; completionMessage = ""; resetEditorDraft(player); renderEditor(player); renderPlayers(); renderDebug(); renderProgress(); renderTeams();
+    selectedPlayerId = playerId(player); completionMessage = ""; resetEditorForPlayer(player); renderEditor(player); renderPlayers(); renderDebug(); renderProgress(); renderTeams();
   }
 
   function activeVariantPlayer(player, rating) { return { ...player, __ratingsTeamRole: rating.position }; }
@@ -1121,7 +1146,7 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
     const next = document.createElement("button"); next.type = "button"; next.className = "button ratings-save-next"; next.textContent = "SALVA E PROSSIMO"; next.addEventListener("click", () => saveAndNext(player));
     const nextPlayer = document.createElement("button"); nextPlayer.type = "button"; nextPlayer.className = "button button--quiet"; nextPlayer.textContent = "Successivo →"; nextPlayer.disabled = !adjacentPlayer(player, 1); nextPlayer.addEventListener("click", () => navigatePlayer(player, 1));
     const remove = document.createElement("button"); remove.type = "button"; remove.className = "button button--danger ratings-remove-rating"; remove.textContent = "Rimuovi valutazione"; remove.disabled = !rated; remove.title = rated ? "Rimuovi la valutazione salvata" : "Nessuna valutazione salvata da rimuovere"; remove.addEventListener("click", () => removeRating(player));
-    const back = document.createElement("button"); back.type = "button"; back.className = "button button--quiet"; back.textContent = "Torna alla squadra"; back.addEventListener("click", () => { selectedPlayerId = ""; editorDraft = null; editorDraftPlayerId = ""; completionMessage = ""; render(); });
+    const back = document.createElement("button"); back.type = "button"; back.className = "button button--quiet"; back.textContent = "Torna alla squadra"; back.addEventListener("click", () => { selectedPlayerId = ""; resetEditorForPlayer(null); completionMessage = ""; render(); });
     actions.append(previousPlayer, next, nextPlayer, remove, back); card.append(controls, actions);
     if (completionMessage) card.append(Object.assign(document.createElement("p"), { className: "ratings-complete", textContent: completionMessage }));
     nodes.editor.replaceChildren(card);
@@ -1152,7 +1177,7 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
     if (!target) return;
     selectedPlayerId = playerId(target);
     completionMessage = "";
-    resetEditorDraft(target);
+    resetEditorForPlayer(target);
     render();
   }
 
@@ -1175,7 +1200,7 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
   function saveAndNext(player) {
     saveRating(player, currentEditorRating(player));
     const roster = selectedRoster(); const index = roster.findIndex((item) => playerId(item) === playerId(player)); const next = roster[index + 1];
-    if (next) { selectedPlayerId = playerId(next); completionMessage = ""; resetEditorDraft(next); render(); renderEditor(next); }
+    if (next) { selectedPlayerId = playerId(next); completionMessage = ""; resetEditorForPlayer(next); render(); renderEditor(next); }
     else { completionMessage = "Squadra completata"; render(); renderEditor(player); }
   }
 
@@ -1314,7 +1339,7 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
         let imported = 0;
         valid.forEach(({ id, record }) => {
           ratings[id] = {
-            ...normalizeRating(record),
+            ...normalizeRatingForPlayer(id, record),
             playerId: id,
             autoGenerated: Boolean(record.autoGenerated),
             generatedFromOverall: Boolean(record.generatedFromOverall),
@@ -1327,7 +1352,7 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
         });
 
         selectedPlayerId = playerById.has(selectedPlayerId) ? selectedPlayerId : "";
-        editorDraft = null; editorDraftPlayerId = ""; completionMessage = ""; generatorMessage = "";
+        resetEditorForPlayer(null); completionMessage = ""; generatorMessage = "";
         persistRatings();
         render();
         updateSyncStatus(`Import squadre completato: ${imported} rating importati, ${ignored} ignorati. Sincronizzazione Firestore in corso.`);
@@ -1346,6 +1371,8 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
     scheduleRealtimeRender.pending = true;
     requestAnimationFrame(() => {
       scheduleRealtimeRender.pending = false;
+      const selected = playerById.get(String(selectedPlayerId));
+      resetEditorForPlayer(selected || null);
       persistRatings();
       render();
     });
@@ -1423,8 +1450,7 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
         snapshot.forEach((doc) => {
           const id = String(doc.id);
           remoteIds.add(id);
-          const hasPendingLocalWrite = pendingSync[id]?.operation === "set";
-          if (!hasPendingLocalWrite) changed = mergeRatingRecord(id, doc.data(), { forceRemote: true }) || changed;
+          changed = mergeRemoteRatingRecord(id, doc.data()) || changed;
         });
 
         Object.keys(localBeforeRemote).forEach((id) => {
@@ -1446,7 +1472,7 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
             return;
           }
           if (pendingSync[id]?.operation === "set" && !change.doc.metadata?.hasPendingWrites) return;
-          changed = mergeRatingRecord(id, change.doc.data(), { forceRemote: true }) || changed;
+          changed = mergeRemoteRatingRecord(id, change.doc.data()) || changed;
         });
       }
 
@@ -1519,12 +1545,12 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
         payload.forEach((record) => {
           const id = String(record?.playerId || record?.id || "");
           if (!id || !playerById.has(id)) { ignored += 1; return; }
-          replacement[id] = { ...normalizeRating(record), updatedAt: updatedAtString(record.updatedAt) || new Date().toISOString(), updatedBy: clean(record.updatedBy) || syncState.evaluatorName || "Import" };
+          replacement[id] = { ...record, ...normalizeRatingForPlayer(id, record), updatedAt: updatedAtString(record.updatedAt) || new Date().toISOString(), updatedBy: clean(record.updatedBy) || syncState.evaluatorName || "Import" };
           imported += 1;
         });
         ratings = replacement;
         selectedPlayerId = playerById.has(selectedPlayerId) ? selectedPlayerId : "";
-        editorDraft = null; editorDraftPlayerId = ""; completionMessage = ""; generatorMessage = "";
+        resetEditorForPlayer(null); completionMessage = ""; generatorMessage = "";
         persistRatings();
         render();
         updateSyncStatus(`Import locale completato: Rating importati: ${imported}. Rating ignorati: ${ignored}. Rating precedenti rimossi: ${previousCount}. Firestore condiviso non viene sostituito in massa dall’import.`);
@@ -1560,5 +1586,18 @@ L’operazione verrà sincronizzata su Firestore. Gli altri rating non verranno 
   if (nodes.evaluatorName) { nodes.evaluatorName.value = syncState.evaluatorName; nodes.evaluatorName.addEventListener("input", () => { syncState.evaluatorName = nodes.evaluatorName.value.trim(); localStorage.setItem(EVALUATOR_KEY, syncState.evaluatorName); renderDebug(); }); }
   nodes.importJson?.addEventListener("change", () => importRatingsJson(nodes.importJson.files && nodes.importJson.files[0]));
   startFirestoreSync();
-  globalThis.InazumaPlayerRatings = { render, refresh: render, playersForTeam, overallFor, categoryFor, starsFor, exportRatingsJson, exportTeamsRatedJson, exportSelectedTeamsRatingsJson, startFirestoreSync, flushPendingSync };
+  const testing = globalThis.INAZUMA_RATINGS_TEST_MODE ? {
+    normalizeRatingForPlayer,
+    mergeRatingRecord,
+    mergeRemoteRatingRecord,
+    shouldUseIncoming,
+    firestorePayload,
+    resetEditorForPlayer,
+    saveRating,
+    selectVariant: (player, variantId) => { activeRoleVariantId = variantId; resetEditorDraft(player); },
+    state: () => ({ ratings, activeRoleVariantId, editorDraft: editorDraft ? { ...editorDraft } : null }),
+    setRatings: (value) => { ratings = value; },
+    setPendingSync: (value) => { pendingSync = value; },
+  } : undefined;
+  globalThis.InazumaPlayerRatings = { render, refresh: render, playersForTeam, overallFor, categoryFor, starsFor, exportRatingsJson, exportTeamsRatedJson, exportSelectedTeamsRatingsJson, startFirestoreSync, flushPendingSync, ...(testing ? { __testing: testing } : {}) };
 })();
