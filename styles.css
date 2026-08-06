@@ -1229,6 +1229,17 @@ dialog::backdrop { background: rgba(3,20,37,.7); backdrop-filter: blur(3px); }
 }
 
 /* Player Ratings generators */
+.ratings-variants-panel { grid-column: 1 / -1; display: grid; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 12px; background: #f8fafc; }
+.ratings-variant-tabs, .ratings-add-variant, .ratings-variant-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ratings-variant-tab.is-active { color: #fff; background: var(--blue); border-color: var(--blue); }
+.ratings-add-variant select { min-width: 70px; height: 34px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.ratings-variant-visuals summary { cursor: pointer; color: var(--blue-dark); font-size: .7rem; font-weight: 900; letter-spacing: .06em; }
+.ratings-variant-visuals[open] { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.ratings-variant-visuals label { display: grid; gap: 3px; min-width: 0; color: var(--muted); font-size: .68rem; font-weight: 700; }
+.ratings-variant-visuals summary { grid-column: 1 / -1; }
+.ratings-variant-visuals input { box-sizing: border-box; width: 100%; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; }
+@media (max-width: 520px) { .ratings-variant-visuals[open] { grid-template-columns: 1fr; } .ratings-variant-actions .button, .ratings-add-variant .button { flex: 1 1 180px; } }
+
 .ratings-auto-panel, .ratings-generate-panel {
   display: grid;
   gap: 8px;
