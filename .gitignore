@@ -1,4 +1,0 @@
-.venv/
-.playwright-profile/
-__pycache__/
-*.py[cod]
