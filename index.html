@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Browse players and manage teams in the Inazuma Eleven Player Codex.">
+  <title>Inazuma Eleven Player Codex</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <nav class="topbar">
+    <div class="shell topbar__inner">
+      <strong>IE Codex</strong>
+      <div class="view-tabs" role="tablist" aria-label="Application pages">
+        <button class="view-tab is-active" data-view="players" type="button">Players</button>
+        <button class="view-tab" data-view="teams" type="button">Team Manager</button>
+        <button class="view-tab" data-view="tournaments" type="button">Mini Tournaments</button>
+        <button class="view-tab" data-view="championships" type="button">Full Team Championships</button>
+        <button class="view-tab" data-view="ratings" type="button">Player Ratings</button>
+        <button class="view-tab" data-view="custom" type="button">Custom Players</button>
+      </div>
+    </div>
+  </nav>
+  <header class="hero">
+    <div class="hero__glow" aria-hidden="true"></div>
+    <div class="shell hero__content">
+      <p class="eyebrow">Player database</p>
+      <h1>Build your <span>dream eleven.</span></h1>
+      <p class="hero__copy">Search every era, then organize aliases, logos, and lineups in the Team Manager.</p>
+      <div class="hero__stats" aria-live="polite"><strong id="total-count">0</strong><span>players in the codex</span></div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section id="players-view" class="app-view">
+      <section class="filters" aria-label="Player filters">
+        <label class="search-field"><span>Search by name</span><span class="search-field__control"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"/></svg><input id="search" type="search" placeholder="e.g. Mark Evans" autocomplete="off"></span></label>
+        <label><span>Team</span><select id="team-filter"><option value="">All teams</option></select></label>
+        <label><span>Position</span><select id="position-filter"><option value="">All positions</option></select></label>
+        <label><span>Element</span><select id="element-filter"><option value="">All elements</option></select></label>
+        <button id="reset-filters" class="reset" type="button">Reset filters</button>
+      </section>
+      <section class="results" aria-labelledby="results-title">
+        <div class="results__heading"><div><p class="eyebrow">Scouting report</p><h2 id="results-title">All players</h2></div><p id="result-count" class="result-count" aria-live="polite"></p></div>
+        <div id="player-grid" class="player-grid"></div>
+        <div id="empty-state" class="empty-state" hidden><span class="empty-state__ball" aria-hidden="true">⚽</span><h2>No players found</h2><p>Try another name or reset your filters.</p><button id="empty-reset" type="button">Show all players</button></div>
+        <nav id="pagination" class="pagination" aria-label="Results pages"></nav>
+      </section>
+    </section>
+
+    <section id="teams-view" class="app-view manager" hidden>
+      <div class="manager__heading">
+        <div><p class="eyebrow">Club administration</p><h2>Team Manager</h2><p>Automatic teams stay in sync with players.js. Your manual edits always take priority.</p></div>
+        <div class="manager__actions"><button id="export-teams" class="button button--quiet" type="button">Export teams.js</button><label class="ratings-import-button"><span class="button button--quiet">Import teams.js</span><input id="import-teams" type="file" accept="application/javascript,text/javascript,application/json,.js,.json"></label><button id="create-team" class="button" type="button">Create team</button></div>
+      </div>
+      <div class="manager__tools">
+        <input id="team-search" type="search" placeholder="Search teams and aliases…">
+        <button id="merge-teams" class="button button--dark" type="button" disabled>Merge selected</button>
+      </div>
+      <p id="team-count" class="result-count"></p>
+      <div id="team-grid" class="team-grid"></div>
+    </section>
+
+    <section id="tournaments-view" class="app-view manager" hidden>
+      <div class="manager__heading">
+        <div><p class="eyebrow">Six-a-side setup</p><h2>Mini Tournaments</h2><p>Create tournament files for another game using only teamId and playerIds references.</p></div>
+        <div class="manager__actions"><button id="export-tournaments" class="button button--quiet" type="button">Export mini-tournaments.js</button><button id="create-tournament" class="button" type="button">Create tournament</button></div>
+      </div>
+      <p id="tournament-count" class="result-count"></p>
+      <div id="tournament-grid" class="tournament-grid"></div>
+    </section>
+
+    <section id="championships-view" class="app-view manager" hidden>
+      <div class="manager__heading">
+        <div><p class="eyebrow">Full roster competition</p><h2>Full Team Championships</h2><p>Create championship files with complete team rosters from teams.js and players.js.</p></div>
+        <div class="manager__actions"><button id="export-championships" class="button button--quiet" type="button">Export full-team-championships.js</button><button id="create-championship" class="button" type="button">Create championship</button></div>
+      </div>
+      <p id="championship-count" class="result-count"></p>
+      <div id="championship-grid" class="tournament-grid"></div>
+    </section>
+
+
+
+    <section id="custom-view" class="app-view manager" hidden>
+      <div class="manager__heading">
+        <div><p class="eyebrow">Custom Players</p><h2>Custom Players</h2><p>Crea personaggi originali, assegnali alle squadre esistenti e gestiscili senza modificare i database ufficiali.</p></div>
+        <div class="manager__actions"><button id="export-custom-players" class="button button--quiet" type="button">Esporta custom players</button><label class="ratings-import-button"><span class="button button--quiet">Importa custom players</span><input id="import-custom-players" type="file" accept="application/json,.json"></label><button id="reset-custom-players" class="button button--danger" type="button">Reset custom players locali</button></div>
+      </div>
+      <div class="custom-layout">
+        <form id="custom-player-form" class="custom-form">
+          <input id="custom-edit-id" type="hidden">
+          <p id="custom-generated-id" class="custom-generated-id">ID generato automaticamente: custom_0001</p>
+          <div class="form-grid">
+            <label><span>Nome *</span><input id="custom-first-name" required></label>
+            <label><span>Cognome</span><input id="custom-last-name"></label>
+            <label class="form-wide"><span>Nome visualizzato</span><input id="custom-display-name" placeholder="Generato da nome + cognome se vuoto"></label>
+            <label><span>Ruolo *</span><select id="custom-position" required><option>FW</option><option>MF</option><option>DF</option><option>GK</option></select></label>
+            <label><span>Elemento *</span><select id="custom-element" required><option>Forest</option><option>Fire</option><option>Mountain</option><option>Wind</option></select></label>
+            <label class="form-wide"><span>Foto / ritratto</span><input id="custom-portrait" type="file" accept="image/*"></label>
+            <label class="form-wide"><span>Squadra / Squadre</span><select id="custom-teams" multiple size="6"></select></label>
+            <label class="form-wide"><span>Descrizione / note</span><textarea id="custom-notes" rows="3"></textarea></label>
+          </div>
+          <div id="custom-preview" class="custom-preview"></div>
+          <div id="custom-feedback" class="picker-message"></div>
+          <div class="manager__actions"><button id="custom-cancel-edit" class="button button--quiet" type="button" hidden>Annulla modifica</button><button class="button" type="submit">Salva custom player</button></div>
+        </form>
+        <section><h3>Personaggi creati</h3><div id="custom-player-list" class="custom-player-list"></div></section>
+      </div>
+    </section>
+
+    <section id="ratings-view" class="app-view manager" hidden>
+      <div class="manager__heading">
+        <div><p class="eyebrow">Player Ratings</p><h2>Player Ratings</h2><p>Valuta i giocatori e sincronizza automaticamente ogni modifica con Firestore in tempo reale.</p></div>
+      </div>
+      <section class="ratings-sync-panel" aria-label="Player Ratings sync tools">
+        <div class="ratings-sync-main"><span id="ratings-sync-status" class="ratings-sync-status ratings-sync-status--offline">Stato sync: Connessione Firestore…</span><label class="ratings-evaluator"><span>Nome valutatore</span><input id="ratings-evaluator-name" type="text" placeholder="Utente"></label><span id="ratings-sync-count" class="ratings-sync-count">Rating: 0 · In attesa: 0</span><label class="ratings-import-button"><span class="button button--quiet">Importa ratings.json</span><input id="ratings-import-json" type="file" accept="application/json,.json"></label></div>
+        <details class="ratings-debug-details"><summary>Debug / Sync</summary><div id="ratings-debug" class="ratings-debug" aria-live="polite"></div></details>
+      </section>
+      <div class="manager__actions ratings-actions ratings-export-actions"><button id="export-ratings" class="button button--quiet" type="button">Export ratings.json</button><button id="export-rated-teams" class="button button--quiet" type="button">Export teams.rated.json</button></div>
+      <details class="ratings-selected-export"><summary>Export per squadre</summary>
+        <div class="ratings-selected-export__actions"><button id="ratings-export-select-all" class="button button--quiet" type="button">Seleziona tutte</button><button id="ratings-export-clear" class="button button--quiet" type="button">Deseleziona tutte</button><button id="ratings-export-rated-only" class="button button--quiet" type="button">Solo squadre con almeno 1 giocatore valutato</button></div>
+        <div id="ratings-export-team-list" class="ratings-export-team-list"></div>
+        <div class="ratings-selected-export__footer"><button id="export-selected-team-ratings" class="button" type="button" disabled>Export squadre selezionate</button><label class="ratings-import-button"><span class="button button--quiet">Import squadre</span><input id="import-selected-team-ratings" type="file" accept="application/json,.json"></label><p id="ratings-export-feedback" class="picker-message">Seleziona almeno una squadra da esportare.</p></div>
+      </details>
+      <div id="ratings-progress" class="ratings-progress"></div>
+      <div class="ratings-layout">
+        <section class="ratings-teams-panel">
+          <div class="ratings-section-bar"><h3>Squadre</h3><button id="ratings-toggle-teams" class="button button--quiet" type="button">Nascondi squadre</button></div>
+          <div id="ratings-team-list" class="ratings-team-list"></div>
+        </section>
+        <section class="ratings-roster-panel">
+          <div id="ratings-selected-team" class="ratings-selected-team"></div>
+          <h3 id="ratings-player-heading">Giocatori squadra</h3>
+          <div class="ratings-filters"><input id="ratings-player-search" type="search" placeholder="Cerca giocatore…"><select id="ratings-status-filter"><option value="all">Tutti</option><option value="rated">Valutati</option><option value="unrated">Non valutati</option></select></div>
+          <div id="ratings-player-list" class="ratings-player-list"></div>
+        </section>
+        <section class="ratings-editor-panel">
+          <div id="ratings-editor" class="ratings-editor" hidden></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+
+  <dialog id="player-detail-dialog" class="player-detail-dialog" aria-labelledby="player-detail-title">
+    <article id="player-detail-content" class="player-detail"></article>
+  </dialog>
+
+  <dialog id="team-dialog" class="team-dialog">
+    <form id="team-form" method="dialog">
+      <header class="dialog-header"><div id="dialog-logo" class="team-logo team-logo--large"></div><div><p class="eyebrow">Team detail</p><h2 id="dialog-title">Team</h2></div><button class="dialog-close" value="cancel" aria-label="Close">×</button></header>
+      <input id="team-id" type="hidden">
+      <div class="form-grid">
+        <label><span>Team name</span><input id="team-name" required></label>
+        <label class="logo-field"><span>Logo URL</span><span class="inline-control"><input id="team-logo-url" type="url" placeholder="https://example.com/logo.png"><button id="set-logo" type="button">Set Logo URL</button></span></label>
+        <label class="form-wide"><span>Aliases (one per line)</span><textarea id="team-aliases" rows="3" placeholder="Raimon GO&#10;Raimon Junior High"></textarea></label>
+        <label class="form-wide"><span>Notes</span><textarea id="team-notes" rows="3"></textarea></label>
+      </div>
+      <section class="roster-editor"><div class="roster-editor__heading"><h3>Players</h3><span id="roster-count"></span></div><div class="roster-add"><select id="add-player"></select><button id="add-player-button" type="button">Add player</button></div><div id="roster-list" class="roster-list"></div></section>
+      <footer class="dialog-actions"><button id="delete-team" class="button button--danger" type="button">Delete custom team</button><span></span><button class="button button--quiet" value="cancel">Cancel</button><button id="save-team" class="button" value="default">Save changes</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="merge-dialog" class="confirm-dialog"><form method="dialog"><h2>Merge teams</h2><p id="merge-summary"></p><label><span>Keep as canonical team</span><select id="merge-target"></select></label><p class="warning">A backup will be created automatically. All players and aliases will move to the canonical team.</p><div class="dialog-actions"><button class="button button--quiet" value="cancel">Cancel</button><button id="confirm-merge" class="button button--danger" value="default">Confirm merge</button></div></form></dialog>
+
+  <dialog id="tournament-dialog" class="tournament-dialog">
+    <form id="tournament-form" method="dialog">
+      <header class="dialog-header"><div><p class="eyebrow">Tournament detail</p><h2 id="tournament-title">Mini Tournament</h2></div><button class="dialog-close" value="cancel" aria-label="Close">×</button></header>
+      <input id="tournament-id" type="hidden">
+      <label class="single-field"><span>Tournament name</span><input id="tournament-name" required></label>
+      <section class="tournament-builder">
+        <div class="tournament-picker">
+          <h3>Team picker</h3>
+          <input id="tournament-team-search" class="team-card-search" type="search" placeholder="Search available teams…">
+          <div id="tournament-team-cards" class="selectable-team-grid"></div>
+          <button id="add-tournament-team" class="button" type="button" disabled>Add team to tournament</button>
+          <p id="tournament-picker-message" class="picker-message">Select 6 players to add this team</p>
+          <div id="tournament-player-picker" class="tournament-player-list"></div>
+        </div>
+        <div class="tournament-added">
+          <h3>Teams in this tournament</h3>
+          <div id="tournament-team-panels" class="tournament-team-panels"></div>
+        </div>
+      </section>
+      <div id="tournament-errors" class="validation-errors" aria-live="polite"></div>
+      <footer class="dialog-actions"><button id="delete-tournament" class="button button--danger" type="button">Delete</button><span></span><button class="button button--quiet" value="cancel">Cancel</button><button id="save-tournament" class="button" value="default">Save tournament</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="championship-dialog" class="tournament-dialog">
+    <form id="championship-form" method="dialog">
+      <header class="dialog-header"><div><p class="eyebrow">Championship detail</p><h2 id="championship-title">Championship</h2></div><button class="dialog-close" value="cancel" aria-label="Close">×</button></header>
+      <input id="championship-id" type="hidden">
+      <label class="single-field"><span>Championship name</span><input id="championship-name" required></label>
+      <section class="tournament-builder">
+        <div class="tournament-picker">
+          <h3>Add full team</h3>
+          <input id="championship-team-search" class="team-card-search" type="search" placeholder="Search available teams…">
+          <div id="championship-team-cards" class="selectable-team-grid"></div>
+          <p class="picker-message">Select a team card to add its full roster automatically.</p>
+        </div>
+        <div class="tournament-added">
+          <h3>Teams in this championship</h3>
+          <div id="championship-team-panels" class="tournament-team-panels"></div>
+        </div>
+      </section>
+      <div id="championship-errors" class="validation-errors" aria-live="polite"></div>
+      <footer class="dialog-actions"><button id="delete-championship" class="button button--danger" type="button">Delete</button><span></span><button class="button button--quiet" value="cancel">Cancel</button><button id="save-championship" class="button" value="default">Save championship</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="championship-roster-dialog" class="tournament-dialog">
+    <form method="dialog">
+      <header class="dialog-header"><div><p class="eyebrow">Roster editor</p><h2 id="championship-roster-title">Edit roster</h2></div><button class="dialog-close" value="cancel" aria-label="Close">×</button></header>
+      <div class="manager__tools"><input id="championship-roster-search" type="search" placeholder="Search this team roster…"><button id="reset-championship-roster" class="button button--quiet" type="button">Reset roster to full team</button></div>
+      <div id="championship-roster-list" class="tournament-player-list"></div>
+      <section class="championship-staff-editor">
+        <h3>Optional staff</h3>
+        <p class="picker-message">Staff controls are only available in Full Team Championships.</p>
+        <input id="championship-staff-search" class="team-card-search" type="search" placeholder="Search coach or staff candidates…">
+        <div id="championship-head-coach" class="staff-selection"></div>
+        <div id="championship-staff-list" class="staff-selection"></div>
+      </section>
+      <footer class="dialog-actions"><span></span><button id="save-championship-roster" class="button" value="default">Done</button></footer>
+    </form>
+  </dialog>
+
+  <footer><div class="shell">Fan-made data browser. Character data and images belong to LEVEL5 Inc.</div></footer>
+  <script src="data/players.js"></script><script src="data/teams.js"></script><script src="custom-players.js"></script><script src="team-store.js"></script><script src="tournament-store.js"></script><script src="full-team-championship-store.js"></script><script src="app.js"></script><script src="full-team-championships.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script><script src="firebase-config.js"></script><script src="player-ratings.js"></script>
+</body>
+</html>
