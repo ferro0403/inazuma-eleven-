@@ -1,4 +1,4 @@
-name: Probe exact Victory Road body aliases
+name: Extract NIE mirror for exact body aliases
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  probe-exact-body-aliases:
+  mirror-model-ids:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -18,120 +18,81 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Resolve mirror model ids against authoritative lookup
+      - name: Extract packaged NIE mirror and query model ids
         run: |
+          set -euo pipefail
+          command -v 7z >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full; }
+          curl -L --fail --retry 3 -o /tmp/niers.msi \
+            https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers_0.5.9_x64_en-US.msi
+          mkdir -p /tmp/niers-msi
+          7z x -y /tmp/niers.msi -o/tmp/niers-msi >/tmp/7z.log
+          echo "=== packaged database candidates ==="
+          find /tmp/niers-msi -type f \( -iname '*mirror*' -o -iname '*.gz' -o -iname '*.sqlite' \) -printf '%p %s bytes\n' | head -100
           python - <<'PY'
-          import ast, json, re, urllib.parse, urllib.request
+          import ast, gzip, json, re, sqlite3, urllib.request
           from pathlib import Path
 
-          parent = "85d116e6dfcaa2995b596e212a2ce3b7a1f1b11f"
-          old_workflow = f"https://raw.githubusercontent.com/ferro0403/inazuma-eleven-/{parent}/.github/workflows/body-profile-catalog.yml"
-          bobi_commit = "bcd51c767820ca8b80c3115628314512cf106028"
-          lookup_url = f"https://raw.githubusercontent.com/The-RealBobi/G4_Blender/{bobi_commit}/chara_model_lookup.json"
-          api_base = "https://nie.aphrody.com/api/v1/entites/inagle_characters"
-          anchors = ["c01000010", "c01000100", "c01000030", "c01000050"]
+          old_url = "https://raw.githubusercontent.com/ferro0403/inazuma-eleven-/85d116e6dfcaa2995b596e212a2ce3b7a1f1b11f/.github/workflows/body-profile-catalog.yml"
+          with urllib.request.urlopen(old_url, timeout=60) as r:
+              old = r.read().decode("utf-8")
+          m = re.search(r"^\s*codes\s*=\s*(\[[^\n]+\])", old, re.M)
+          if not m:
+              raise RuntimeError("missing unresolved code list")
+          codes = ast.literal_eval(m.group(1))
+          if len(codes) != 87:
+              raise RuntimeError(f"expected 87 codes, got {len(codes)}")
 
-          def get_bytes(url):
-              req = urllib.request.Request(url, headers={"User-Agent":"inazuma-body-profile-exact/1.0"})
-              with urllib.request.urlopen(req, timeout=60) as response:
-                  return response.read()
+          roots = list(Path('/tmp/niers-msi').rglob('mirror.sqlite.gz'))
+          if not roots:
+              roots = [p for p in Path('/tmp/niers-msi').rglob('*.gz') if 'mirror' in p.name.lower()]
+          if len(roots) != 1:
+              raise RuntimeError(f"expected one packaged mirror, found {roots}")
+          packed = roots[0]
+          db = Path('/tmp/mirror.sqlite')
+          with gzip.open(packed, 'rb') as src, db.open('wb') as dst:
+              while chunk := src.read(1024 * 1024):
+                  dst.write(chunk)
 
-          def get_json(url):
-              return json.loads(get_bytes(url))
+          con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+          cols = [r[1] for r in con.execute("PRAGMA table_info(inagle_characters)")]
+          print('COLUMNS', cols)
+          required = {'internal_code','model_id'}
+          if not required.issubset(cols):
+              raise RuntimeError(f"missing columns: {required - set(cols)}")
 
-          old_text = get_bytes(old_workflow).decode("utf-8")
-          match = re.search(r"^\s*codes\s*=\s*(\[[^\n]+\])", old_text, re.M)
-          if not match:
-              raise RuntimeError("Could not recover unresolved code list from parent workflow")
-          missing = ast.literal_eval(match.group(1))
-          if len(missing) != 87:
-              raise RuntimeError(f"Expected 87 unresolved codes, found {len(missing)}")
-
-          lookup = get_json(lookup_url)
-          models = lookup.get("models", {})
-          if not isinstance(models, dict):
-              raise RuntimeError("Authoritative lookup has no models object")
-          catalog = json.loads(Path("data/victory_road_body_profiles.json").read_text(encoding="utf-8"))
-
-          def rows_for(code):
-              query = urllib.parse.urlencode({"per_page": 50, "internal_code": code})
-              payload = get_json(api_base + "?" + query)
-              if isinstance(payload.get("elements"), list):
-                  return payload["elements"]
-              if isinstance(payload.get("page"), dict) and isinstance(payload["page"].get("elements"), list):
-                  return payload["page"]["elements"]
-              return []
-
-          def scalars(value):
-              if isinstance(value, dict):
-                  for child in value.values():
-                      yield from scalars(child)
-              elif isinstance(value, list):
-                  for child in value:
-                      yield from scalars(child)
-              elif isinstance(value, (str, int, float)):
-                  yield str(value).casefold()
-
-          output = {
-              "version": 1,
-              "mirrorApi": api_base,
-              "lookup": {
-                  "repository": "The-RealBobi/G4_Blender",
-                  "commit": bobi_commit,
-                  "path": "chara_model_lookup.json",
-                  "source": lookup.get("source"),
-                  "version": lookup.get("version"),
-                  "modelCount": len(models),
+          placeholders = ','.join('?' for _ in codes)
+          rows = con.execute(
+              f"SELECT internal_code, model_id, chara_id, zukan_order FROM inagle_characters WHERE internal_code IN ({placeholders}) ORDER BY internal_code",
+              codes,
+          ).fetchall()
+          grouped = {}
+          for internal_code, model_id, chara_id, zukan_order in rows:
+              grouped.setdefault(internal_code, []).append({
+                  'modelId': model_id,
+                  'charaId': chara_id,
+                  'zukanOrder': zukan_order,
+              })
+          out = {
+              'version': 1,
+              'source': {
+                  'repository': 'aphrody-code/nie',
+                  'release': 'v0.5.9',
+                  'asset': 'niers_0.5.9_x64_en-US.msi',
+                  'packagedMirror': packed.name,
               },
-              "records": {},
-              "anchorLookupSamples": {},
+              'requested': len(codes),
+              'resolvedRows': sum(1 for c in codes if grouped.get(c)),
+              'records': {c: grouped.get(c, []) for c in codes},
           }
-
-          for code in anchors + missing:
-              rows = rows_for(code)
-              model_ids = sorted({str(r["model_id"]).casefold() for r in rows if r.get("model_id")})
-              hits = []
-              for model_path, raw in models.items():
-                  values = set(scalars(raw))
-                  path_cf = str(model_path).casefold()
-                  for model_id in model_ids:
-                      if model_id == path_cf or model_id in values:
-                          hits.append({
-                              "modelId": model_id,
-                              "modelPath": model_path,
-                              "bodyId": raw.get("body_id"),
-                              "bodyTypeIdx": raw.get("body_profile"),
-                              "bodyMeshProfile": raw.get("body_mesh_profile"),
-                          })
-              output["records"][code] = {
-                  "rows": [{
-                      "internalCode": r.get("internal_code"),
-                      "charaId": r.get("chara_id"),
-                      "modelId": r.get("model_id"),
-                      "baseSlug": r.get("base_slug"),
-                      "zukanOrder": r.get("zukan_order"),
-                  } for r in rows],
-                  "modelIds": model_ids,
-                  "directBodyId": catalog.get("characters", {}).get(code),
-                  "exactLookupHits": hits,
-              }
-              print(code, "modelIds=", model_ids, "direct=", output["records"][code]["directBodyId"], "hits=", hits[:3])
-
-          for code in anchors:
-              for model_path, raw in models.items():
-                  if f"/{code}/" in str(model_path).casefold():
-                      output["anchorLookupSamples"][code] = {"modelPath": model_path, "raw": raw}
-                      break
-
-          Path("data/exact_body_alias_probe.json").write_text(
-              json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-          )
-          print("RESULT", len(missing), "missing codes probed")
+          Path('data/nie_model_ids_for_body_profiles.json').write_text(json.dumps(out, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+          print('RESULT requested=', len(codes), 'codes_with_rows=', out['resolvedRows'])
+          for c in codes:
+              print(c, grouped.get(c, []))
           PY
-      - name: Upload exact alias probe
+      - name: Upload exact model ids
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: victory-road-exact-body-alias-probe
+          name: nie-exact-model-ids
           if-no-files-found: error
-          path: data/exact_body_alias_probe.json
+          path: data/nie_model_ids_for_body_profiles.json
