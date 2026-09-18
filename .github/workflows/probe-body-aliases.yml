@@ -10,184 +10,74 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Install image classifier deps
-        run: pip install pillow numpy scikit-learn requests
-      - name: Download exact mapping artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p /tmp/body-map
-          gh run download 35357488462 -n victory-road-player-body-profiles -D /tmp/body-map
-
-      - name: Multi-view body-profile audit
+      - run: pip install pillow numpy requests
+      - name: Compare IE3 manager body family
         run: |
           python - <<'PY'
-          import io, json, random
-          from collections import Counter, defaultdict
-          from concurrent.futures import ThreadPoolExecutor, as_completed
+          import io,json
+          from concurrent.futures import ThreadPoolExecutor
           from pathlib import Path
-          import numpy as np, requests
+          import numpy as np,requests
           from PIL import Image
-          from sklearn.ensemble import ExtraTreesClassifier
-          from sklearn.metrics import accuracy_score
-          from sklearn.model_selection import train_test_split
-          from sklearn.preprocessing import StandardScaler
 
-          catalog=json.loads(Path("data/victory_road_body_profiles.json").read_text())
-          models=requests.get(
-            "https://raw.githubusercontent.com/salty-max/kizuna/05c979efe9ef4565468d725db67c0913394f63dd/data/raw/character-models.json",
-            timeout=30).json()
-          targets=["c01000915","c02024210","c02024220","c02024230","c04017360","c04017410","c06037140","c04017470","c03030710","c03031450","c03031470","c11803100","c07020120","c11807250","c07040120","c07050060","c07050070","c07050080","c07050090","c07050100","c07050110","c07050120","c07050020","c07050030","c07050040","c07050010","c11807280","c07070030","c07070040","c07070050","c07070060","c07070070","c07070080","c07070090","c07070100","c07070020","c07070110","c11807230","c07080050","c07080060","c07080070","c07080080","c07080090","c07080100","c07090100","c07090090","c07090070","c07090110","c07090080","c07090050","c07090060","c07090040","c07090120","c07090030","c07090140","c07100040","c07100100","c07100110","c07100090","c07100080","c07100140","c07100120","c11807200","c07110020","c11807270","c11807260","c07120020","c07120010","c07120050","c07120080","c07120070","c07120030","c07120060","c07120090","c08130110","c08130100","c08130090","c08130080","c08130060","c08130050","c08130030","c08130020","c08130010","c08130140","c08130130","c08130120","c11807240"]
-          relevant={0,1,2,3,4,5,6,7,9,10,11,12,13,14,15,16}
-          frames=(0,2,4,6)
+          cat=json.loads(Path("data/victory_road_body_profiles.json").read_text())
+          models=requests.get("https://raw.githubusercontent.com/salty-max/kizuna/05c979efe9ef4565468d725db67c0913394f63dd/data/raw/character-models.json",timeout=30).json()
+          codes=[f"c11803{i:02d}0" for i in range(1,11)]
+          # Correct explicit sequence 010..100.
+          codes=["c11803010","c11803020","c11803030","c11803040","c11803050","c11803060","c11803070","c11803080","c11803090","c11803100"]
+          frames=range(8)
 
-          by_type=defaultdict(list)
-          for code,bid in catalog["characters"].items():
-            body=catalog["bodies"].get(str(bid))
-            t=body.get("bodyProfile") if body else None
-            if t in relevant and code in models: by_type[t].append(code)
-          random.seed(260918)
-          selected=[]
-          for t,codes in sorted(by_type.items()):
-            random.shuffle(codes)
-            selected += [(c,t) for c in codes[:min(55,len(codes))]]
+          def t(code):
+            bid=cat["characters"].get(code)
+            return None if bid is None else cat["bodies"][str(bid)]["bodyProfile"]
 
-          sess=requests.Session(); sess.headers["User-Agent"]="Mozilla/5.0 body-profile-audit/2.0"
-          def url_for(code,frame):
-            return f"https://dxi4wb638ujep.cloudfront.net/{models[code]}_r{frame}_fullbody.webp"
-          def dl(key):
-            code,frame=key
-            try:
-              r=requests.get(url_for(code,frame),timeout=20,headers={"User-Agent":sess.headers["User-Agent"]})
-              return key,r.content if r.ok and len(r.content)>500 else None
-            except Exception:
-              return key,None
+          def dl(k):
+            code,fr=k
+            u=f"https://dxi4wb638ujep.cloudfront.net/{models[code]}_r{fr}_fullbody.webp"
+            r=requests.get(u,timeout=20)
+            return k,r.content
 
-          keys=[(c,f) for c,_ in selected for f in frames]+[(c,f) for c in targets for f in frames]
-          raw={}
-          with ThreadPoolExecutor(max_workers=32) as pool:
-            for key,data in pool.map(dl,keys):
-              raw[key]=data
-          print("IMAGES",len(keys),"OK",sum(v is not None for v in raw.values()))
+          keys=[(c,f) for c in codes for f in frames]
+          with ThreadPoolExecutor(max_workers=32) as ex:
+            raw=dict(ex.map(dl,keys))
 
-          def one_features(data):
+          def feat(data):
             im=Image.open(io.BytesIO(data)).convert("RGBA")
-            a=np.asarray(im.getchannel("A"),dtype=np.uint8); m=a>16
-            ys,xs=np.where(m)
-            if not len(xs): return None
-            y0,y1,x0,x1=ys.min(),ys.max(),xs.min(),xs.max()
+            a=np.asarray(im.getchannel("A")); m=a>16
+            ys,xs=np.where(m); y0,y1,x0,x1=ys.min(),ys.max(),xs.min(),xs.max()
             crop=m[y0:y1+1,x0:x1+1]; h,w=crop.shape
-            # sample widths/centres over full body; different angles help suppress pose/hair ambiguity
-            feats=[w/h,h/im.height,w/im.width,m.mean()]
-            for region_start in (0.18,0.30,0.42):
-              lower=crop[int(h*region_start):,:]
-              for frac in np.linspace(0,.99,64):
-                y=min(lower.shape[0]-1,int(frac*lower.shape[0])); xx=np.flatnonzero(lower[y])
-                if len(xx):
-                  feats += [(xx[-1]-xx[0]+1)/w, ((xx[-1]+xx[0])/2)/w]
-                else: feats += [0.0,.5]
-            return np.asarray(feats,dtype=np.float32)
+            out=[w/h,h/im.height,w/im.width]
+            for start in (.18,.28,.38,.48):
+                q=crop[int(h*start):]
+                for frac in np.linspace(0,.99,96):
+                    yy=min(q.shape[0]-1,int(frac*q.shape[0])); xx=np.flatnonzero(q[yy])
+                    out += [0 if not len(xx) else (xx[-1]-xx[0]+1)/w]
+            return np.array(out,dtype=float)
 
-          def multifeat(code):
-            fs=[one_features(raw[(code,f)]) for f in frames]
-            if any(x is None for x in fs): return None
-            return np.concatenate(fs)
-
-          X=[]; y=[]; codes_ok=[]
-          for code,t in selected:
-            z=multifeat(code)
-            if z is not None: X.append(z); y.append(t); codes_ok.append(code)
-          X=np.asarray(X); y=np.asarray(y)
-          print("ROWS",len(y),"COUNTS",dict(sorted(Counter(y.tolist()).items())))
-
-          eligible={t for t,n in Counter(y.tolist()).items() if n>=5}
-          keep=np.array([t in eligible for t in y]); X2=X[keep]; y2=y[keep]
-          kept_codes=[c for c,k in zip(codes_ok,keep) if k]
-          tr,te=train_test_split(np.arange(len(y2)),test_size=.28,random_state=91826,stratify=y2)
-          clf=ExtraTreesClassifier(n_estimators=1000,random_state=918,class_weight="balanced",n_jobs=-1,max_features="sqrt")
-          clf.fit(X2[tr],y2[tr]); pred=clf.predict(X2[te])
-          print("MULTIVIEW_ACCURACY",round(float(accuracy_score(y2[te],pred)),6))
-          per={}
-          for t in sorted(eligible):
-            q=np.flatnonzero(y2[te]==t)
-            per[t]=[int((pred[q]==t).sum()),int(len(q)),round(float((pred[q]==t).mean()),4)]
-          print("MULTIVIEW_PER_TYPE",json.dumps(per,sort_keys=True))
-
-          # Leave-one-out 12-NN purity calibration on known exact rows.
-          sc=StandardScaler().fit(X2); Z=sc.transform(X2)
-          accepted=correct=0; accepted_by_type=defaultdict(lambda:[0,0])
-          margins=[]
-          for i in range(len(y2)):
-            d=np.sqrt(((Z-Z[i])**2).mean(axis=1)); d[i]=np.inf
-            idx=np.argsort(d)[:12]; labels=y2[idx]
-            if len(set(labels.tolist()))==1:
-              accepted+=1; ok=int(labels[0]==y2[i]); correct+=ok
-              accepted_by_type[int(y2[i])][0]+=ok; accepted_by_type[int(y2[i])][1]+=1
-              margins.append(float(d[idx[-1]]))
-          print("UNANIMOUS12_CALIBRATION",json.dumps({
-            "accepted":accepted,"total":len(y2),"precision":round(correct/accepted,6) if accepted else None,
-            "coverage":round(accepted/len(y2),6),
-            "byType":dict(sorted(accepted_by_type.items())),
-            "maxAcceptedDistance":round(max(margins),4) if margins else None
-          }))
-
-          clf.fit(X2,y2)
-          # Exact-name consensus from the user's actual 2,819-player dataset.
-          import re, unicodedata
-          ptxt=Path("data/players.js").read_text(encoding="utf-8")
-          players=json.loads(re.search(r"globalThis\\.INAZUMA_PLAYERS\\s*=\\s*(\\[[\\s\\S]*\\]);\\s*$",ptxt).group(1))
-          existing=json.loads(Path("/tmp/body-map/player_body_profiles.json").read_text())
-          by_name=defaultdict(list)
-          for p in players:
-              nk=unicodedata.normalize("NFKC",str(p.get("name") or "")).strip().casefold()
-              by_name[nk].append(p)
-          code_to_player={}
-          for pid,rec in existing.items():
-              if rec.get("internalCode"): code_to_player[rec["internalCode"]]=next((p for p in players if str(p.get("id"))==str(pid)),None)
-
-          name_consensus={}
-          for code in targets:
-              p=code_to_player.get(code)
-              if not p: continue
-              nk=unicodedata.normalize("NFKC",str(p.get("name") or "")).strip().casefold()
-              vals=[]
-              for peer in by_name[nk]:
-                  rec=existing.get(str(peer.get("id")),{})
-                  t=rec.get("bodyTypeIdx")
-                  if t is not None: vals.append(int(t))
-              name_consensus[code]=sorted(set(vals))
-
-          print("TARGETS")
-          results=[]
-          for code in targets:
-            z=multifeat(code)
-            if z is None: print(code,"NO_MULTI"); continue
-            p=clf.predict_proba([z])[0]; order=np.argsort(p)[::-1][:4]
-            tops=[(int(clf.classes_[i]),round(float(p[i]),4)) for i in order]
-            zz=sc.transform([z])[0]; d=np.sqrt(((Z-zz)**2).mean(axis=1)); idx=np.argsort(d)[:12]
-            neigh=[(kept_codes[i],int(y2[i]),round(float(d[i]),4)) for i in idx]
-            labels=[x[1] for x in neigh]
-            row={
-              "internalCode":code,
-              "pred":int(clf.classes_[order[0]]),
-              "top":tops,
-              "n12Types":dict(sorted(Counter(labels).items())),
-              "d12":round(float(d[idx[-1]]),4),
-              "nameConsensus":name_consensus.get(code,[]),
-              "neighbours":neigh,
-            }
-            results.append(row)
-            print("FINAL",json.dumps(row,sort_keys=True))
-          Path("/tmp/body-profile-audit.json").write_text(json.dumps(results,indent=2)+"\\n")
+          F={c:np.concatenate([feat(raw[(c,f)]) for f in frames]) for c in codes}
+          # Standardize dimensions across this homogeneous family.
+          M=np.stack(list(F.values())); mean=M.mean(0); std=M.std(0); std[std<1e-6]=1
+          Z={c:(v-mean)/std for c,v in F.items()}
+          target="c11803100"
+          rows=[]
+          for c in codes[:-1]:
+              d=float(np.sqrt(np.mean((Z[target]-Z[c])**2)))
+              rows.append((c,t(c),round(d,6)))
+          rows.sort(key=lambda x:x[2])
+          print("MANAGER_NEIGHBOURS",json.dumps(rows))
+          # Per-view raw feature distances so one camera cannot dominate.
+          for fr in frames:
+              tf=feat(raw[(target,fr)])
+              rr=[]
+              for c in codes[:-1]:
+                  cf=feat(raw[(c,fr)])
+                  rr.append((c,t(c),round(float(np.sqrt(np.mean((tf-cf)**2))),6)))
+              rr.sort(key=lambda x:x[2])
+              print("VIEW",fr,json.dumps(rr))
           PY
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: body-profile-audit-87
-          path: /tmp/body-profile-audit.json
