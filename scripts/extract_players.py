@@ -24,9 +24,10 @@ from urllib.request import Request, urlopen
 
 SOURCE_URL = "https://zukan.inazuma.jp/en/chara_list/"
 DEFAULT_OUTPUT = Path("data/players.js")
+BODY_LOOKUP_REVISION = "e946d46aff683ec026beea2b578614e5ec570961"
 BODY_LOOKUP_URL = (
-    "https://raw.githubusercontent.com/aphrody-code/nie/main/"
-    "plugins/niers-blender/chara_model_lookup.json"
+    "https://raw.githubusercontent.com/aphrody-code/nie/"
+    f"{BODY_LOOKUP_REVISION}/plugins/niers-blender/chara_model_lookup.json"
 )
 BODY_PROFILE_MODELS = {
     0: "base_normal_00",
