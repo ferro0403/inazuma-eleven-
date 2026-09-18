@@ -33,6 +33,7 @@ DEFAULT_OUTPUT = ROOT / "data/player_body_profiles.json"
 DEFAULT_REPORT = ROOT / "data/player_body_profiles_report.json"
 DEFAULT_CACHE = ROOT / "data/zukan_internal_codes.json"
 DEFAULT_BROWSER_PROFILE = ROOT / ".playwright-profile-body-catalog"
+DEFAULT_ZUKAN_URL = "https://zukan.inazuma.jp/en/chara_list/?per_page=50"
 
 INTERNAL_CODE_RE = re.compile(r"c\d{8}", re.I)
 PLAYERS_PAYLOAD_RE = re.compile(
@@ -421,6 +422,15 @@ def scrape_zukan_codes(
             (extract_players.page_number(url) for url in pagination),
             default=1,
         )
+        total = extract_players.reported_total(first_markup)
+        requested_per_page = int(
+            parse_qs(urlparse(source_url).query).get("per_page", ["50"])[0]
+        )
+        if total and requested_per_page > 0:
+            last_page = max(
+                last_page,
+                (total + requested_per_page - 1) // requested_per_page,
+            )
 
         for page_number in range(1, last_page + 1):
             url = extract_players.page_url(source_url, page_number)
@@ -475,7 +485,7 @@ def main() -> int:
     args = build_parser().parse_args()
     players = read_players(args.players)
     catalog = load_body_catalog(args.body_catalog)
-    source_url = args.url or source_url_from_players_js(args.players)
+    source_url = args.url or DEFAULT_ZUKAN_URL
 
     if args.reuse_zukan_cache:
         if not args.cache.exists():
