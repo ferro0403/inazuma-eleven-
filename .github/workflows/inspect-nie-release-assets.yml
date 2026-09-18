@@ -1,0 +1,40 @@
+name: Inspect NIE release assets
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+    paths:
+      - .github/workflows/inspect-nie-release-assets.yml
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect official public NIE release archives
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p nie-release
+          curl -L --fail --retry 3 -o /tmp/niers.zip             https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers-1.1.0.zip
+          sha256sum /tmp/niers.zip | tee nie-release/sha256.txt
+          unzip -l /tmp/niers.zip > nie-release/zip-list.txt
+          grep -iE '\.glb|\.gltf|\.g4md|\.g4mg|\.g4tx|\.g4sk|c01000010|u000101|u010101|base_normal|model-cache|chara_model_lookup'             nie-release/zip-list.txt > nie-release/hits.txt || true
+
+          # Inspect the Windows installer payload listing too; do not execute it.
+          curl -L --fail --retry 3 -o /tmp/niers.exe             https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers_0.5.9_x64-setup.exe
+          sha256sum /tmp/niers.exe >> nie-release/sha256.txt
+          7z l -ba /tmp/niers.exe > nie-release/exe-list.txt || true
+          grep -iE '\.glb|\.gltf|\.g4md|\.g4mg|\.g4tx|\.g4sk|c01000010|u000101|u010101|base_normal|model-cache|chara_model_lookup'             nie-release/exe-list.txt > nie-release/exe-hits.txt || true
+
+          echo '=== ZIP HITS ==='
+          cat nie-release/hits.txt
+          echo '=== EXE HITS ==='
+          cat nie-release/exe-hits.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nie-release-asset-inspect
+          path: nie-release/
