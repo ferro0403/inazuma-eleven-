@@ -7,34 +7,95 @@ on:
     paths:
       - .github/workflows/probe-body-aliases.yml
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Probe Azalee raw character payload
-        shell: bash
-        run: |
-          set -u
-          url="https://azalee.rosegriffon.fr/chara/mark-evans-0x3055CF22"
-          curl -L --connect-timeout 10 --max-time 45 -sS "$url" -o /tmp/mark.html || true
-          echo "html_bytes=$(wc -c < /tmp/mark.html 2>/dev/null || echo 0)"
-          python - <<'PY'
-          from pathlib import Path
-          import re
-          text=Path("/tmp/mark.html").read_text(errors="replace")
-          needles=["c01000010","c07110020","internal_code","model_id","modelId","body_id","bodyType","__next_f"]
-          for n in needles:
-              print("NEEDLE",n,"count",text.count(n))
-              for m in list(re.finditer(re.escape(n), text, re.I))[:8]:
-                  print(text[max(0,m.start()-350):m.end()+700].replace("\n"," ")[:1200])
-          PY
+      - uses: actions/checkout@v4
 
-          for base in "https://azalee.rosegriffon.fr" "https://api.rosegriffon.fr" "https://api.aphrody.com"; do
-            for code in c01000010 c07110020 c07050010 c03031470 c08130010; do
-              echo "=== $base API $code ==="
-              curl -L --connect-timeout 10 --max-time 30 -sS -w "\nHTTP=%{http_code}\n" \
-                "$base/api/v1/chara?q=$code&per_page=10" | head -c 5000 || true
-              echo
-            done
-          done
+      - name: Download exact mapping artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/body-map
+          gh run download 35357488462 -n victory-road-player-body-profiles -D /tmp/body-map
+
+      - name: Test shared visual asset as exact alias key
+        run: |
+          python - <<'PY'
+          import json, re
+          from collections import defaultdict, Counter
+          from pathlib import Path
+
+          text=Path("data/players.js").read_text(encoding="utf-8")
+          m=re.search(r"globalThis\.INAZUMA_PLAYERS\s*=\s*(\[[\s\S]*\]);\s*$",text)
+          players=json.loads(m.group(1))
+          mapping=json.loads(Path("/tmp/body-map/player_body_profiles.json").read_text())
+          report=json.loads(Path("/tmp/body-map/player_body_profiles_report.json").read_text())
+
+          by_id={int(p["id"]):p for p in players}
+          groups=defaultdict(list)
+          for p in players:
+              url=(p.get("imageUrl") or p.get("portraitUrl") or "").strip()
+              if url:
+                  # Exact URL identity only: no name/gender/height inference.
+                  groups[url].append(int(p["id"]))
+
+          contradictions=[]
+          resolved_missing=[]
+          unresolved=[]
+          for miss in report["unresolved"]:
+              pid=int(miss["playerId"])
+              p=by_id[pid]
+              url=(p.get("imageUrl") or p.get("portraitUrl") or "").strip()
+              peers=groups.get(url,[])
+              known=[]
+              for qid in peers:
+                  rec=mapping.get(str(qid),{})
+                  t=rec.get("bodyTypeIdx")
+                  if t is not None:
+                      known.append((qid,t,rec.get("internalCode"),by_id[qid].get("name")))
+              types=sorted({x[1] for x in known})
+              if len(types)==1:
+                  resolved_missing.append({
+                    "playerId":pid,"name":p.get("name"),"internalCode":miss["internalCode"],
+                    "bodyTypeIdx":types[0],"peerCount":len(known),"peers":known[:8],
+                    "asset":url,
+                  })
+              else:
+                  unresolved.append({
+                    "playerId":pid,"name":p.get("name"),"internalCode":miss["internalCode"],
+                    "knownPeerTypes":types,"knownPeers":known[:8],"peerIds":peers,
+                    "asset":url,
+                  })
+
+          # Audit the proposed key across ALL groups: any one shared asset mapping to >1 body type invalidates it.
+          for url,ids in groups.items():
+              typed=[]
+              for pid in ids:
+                  rec=mapping.get(str(pid),{})
+                  t=rec.get("bodyTypeIdx")
+                  if t is not None:
+                      typed.append((pid,t,rec.get("internalCode"),by_id[pid].get("name")))
+              types=sorted({x[1] for x in typed})
+              if len(types)>1:
+                  contradictions.append({"asset":url,"types":types,"rows":typed})
+
+          print("TOTAL_GROUPS",len(groups))
+          print("CONTRADICTORY_GROUPS",len(contradictions))
+          print("MISSING_RESOLVED_BY_EXACT_ASSET",len(resolved_missing))
+          print("MISSING_STILL_UNRESOLVED",len(unresolved))
+          print("TYPE_COUNTS",dict(Counter(x["bodyTypeIdx"] for x in resolved_missing)))
+          print("RESOLVED")
+          print(json.dumps(resolved_missing,ensure_ascii=False,indent=2))
+          print("UNRESOLVED")
+          print(json.dumps(unresolved,ensure_ascii=False,indent=2))
+          if contradictions:
+              print("CONTRADICTIONS")
+              print(json.dumps(contradictions[:20],ensure_ascii=False,indent=2))
+          PY
