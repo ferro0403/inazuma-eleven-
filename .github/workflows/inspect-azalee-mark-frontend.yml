@@ -1,0 +1,54 @@
+name: Inspect Azalee Mark frontend
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+    paths:
+      - .github/workflows/inspect-azalee-mark-frontend.yml
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect page and JS references
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p azalee-inspect/js
+          page='https://azalee.rosegriffon.fr/chara/mark-evans-0x3055CF22'
+          curl -L -sS -A 'Mozilla/5.0' "$page" -o azalee-inspect/page.html
+          python - <<'PY'
+          import re, html, pathlib, urllib.parse
+          p=pathlib.Path('azalee-inspect/page.html').read_text('utf-8',errors='ignore')
+          print('html bytes',len(p))
+          for pat in [r'[^"\'<> ]*\.glb[^"\'<> ]*',r'[^"\'<> ]*c01000010[^"\'<> ]*',r'[^"\'<> ]*model[^"\'<> ]*']:
+              vals=sorted(set(re.findall(pat,p,re.I)))
+              print('\nPATTERN',pat)
+              for v in vals[:200]: print(html.unescape(v))
+          scripts=re.findall(r'<script[^>]+src=["\']([^"\']+)["\']',p,re.I)
+          base='https://azalee.rosegriffon.fr'
+          out=[]
+          for i,s in enumerate(scripts):
+              u=urllib.parse.urljoin(base,s)
+              out.append(u)
+          pathlib.Path('azalee-inspect/scripts.txt').write_text('\n'.join(out)+'\n')
+          print('\nscripts',len(out))
+          for u in out: print(u)
+          PY
+          i=0
+          while IFS= read -r url; do
+            [ -z "$url" ] && continue
+            i=$((i+1))
+            curl -L -sS -A 'Mozilla/5.0' "$url" -o "azalee-inspect/js/$i.js" || true
+          done < azalee-inspect/scripts.txt
+          grep -RInaE 'c01000010|\.glb|model-full|model/perso|rosegriffon|3d|three|model3d' azalee-inspect/js azalee-inspect/page.html             > azalee-inspect/hits.txt || true
+          head -n 1000 azalee-inspect/hits.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: azalee-mark-frontend-inspect
+          path: azalee-inspect/
+          if-no-files-found: error
