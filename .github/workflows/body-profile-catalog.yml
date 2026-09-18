@@ -1,4 +1,4 @@
-name: Extract NIE mirror for exact body aliases
+name: Probe live NIE model ids for unresolved body profiles
 
 on:
   push:
@@ -10,26 +10,16 @@ permissions:
   contents: read
 
 jobs:
-  mirror-model-ids:
+  live-model-ids:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Extract packaged NIE mirror and query model ids
+      - name: Query exact unresolved codes from live NIE catalog
         run: |
           set -euo pipefail
-          command -v msiextract >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq msitools; }
-          curl -L --fail --retry 3 -o /tmp/niers.msi \
-            https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers_0.5.9_x64_en-US.msi
-          mkdir -p /tmp/niers-msi
-          msiextract -C /tmp/niers-msi /tmp/niers.msi
-          echo "=== packaged database candidates ==="
-          find /tmp/niers-msi -type f \( -iname '*mirror*' -o -iname '*.gz' -o -iname '*.sqlite' \) -printf '%p %s bytes\n' | head -100
           python - <<'PY'
-          import ast, gzip, json, re, sqlite3, urllib.request
+          import ast, json, re, time, urllib.parse, urllib.request
           from pathlib import Path
 
           old_url = "https://raw.githubusercontent.com/ferro0403/inazuma-eleven-/85d116e6dfcaa2995b596e212a2ce3b7a1f1b11f/.github/workflows/body-profile-catalog.yml"
@@ -42,106 +32,56 @@ jobs:
           if len(codes) != 87:
               raise RuntimeError(f"expected 87 codes, got {len(codes)}")
 
-          roots = list(Path('/tmp/niers-msi').rglob('mirror.sqlite.gz'))
-          if not roots:
-              roots = [p for p in Path('/tmp/niers-msi').rglob('*.gz') if 'mirror' in p.name.lower()]
-          if len(roots) != 1:
-              raise RuntimeError(f"expected one packaged mirror, found {roots}")
-          packed = roots[0]
-          db = Path('/tmp/mirror.sqlite')
-          with gzip.open(packed, 'rb') as src, db.open('wb') as dst:
-              while chunk := src.read(1024 * 1024):
-                  dst.write(chunk)
-
-          con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-          cols = [r[1] for r in con.execute("PRAGMA table_info(inagle_characters)")]
-          print('COLUMNS', cols)
-          required = {'internal_code','model_id'}
-          if not required.issubset(cols):
-              raise RuntimeError(f"missing columns: {required - set(cols)}")
-
-          placeholders = ','.join('?' for _ in codes)
-          rows = con.execute(
-              f"SELECT internal_code, model_id, chara_id, zukan_order FROM inagle_characters WHERE internal_code IN ({placeholders}) ORDER BY internal_code",
-              codes,
-          ).fetchall()
-          grouped = {}
-          for internal_code, model_id, chara_id, zukan_order in rows:
-              grouped.setdefault(internal_code, []).append({
-                  'modelId': model_id,
-                  'charaId': chara_id,
-                  'zukanOrder': zukan_order,
+          records = {}
+          for code in codes:
+              url = "https://nie.aphrody.com/api/v1/chara?" + urllib.parse.urlencode({
+                  "q": code,
+                  "per_page": 50,
               })
-          out = {
-              'version': 1,
-              'source': {
-                  'repository': 'aphrody-code/nie',
-                  'release': 'v0.5.9',
-                  'asset': 'niers_0.5.9_x64_en-US.msi',
-                  'packagedMirror': packed.name,
-              },
-              'requested': len(codes),
-              'resolvedRows': sum(1 for c in codes if grouped.get(c)),
-              'records': {c: grouped.get(c, []) for c in codes},
+              try:
+                  req = urllib.request.Request(url, headers={"User-Agent": "inazuma-body-profile-audit/1.0"})
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      payload = json.load(r)
+                  rows = payload.get("elements") or payload.get("page", {}).get("elements") or []
+                  exact = [row for row in rows if (row.get("internal_code") or "").casefold() == code.casefold()]
+                  records[code] = exact
+              except Exception as exc:
+                  records[code] = [{"_error": repr(exc)}]
+              time.sleep(0.03)
+
+          resolved = {
+              code: rows[0].get("model_id")
+              for code, rows in records.items()
+              if rows and not rows[0].get("_error") and rows[0].get("model_id")
           }
-          Path('data/nie_model_ids_for_body_profiles.json').write_text(json.dumps(out, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
-          print('RESULT requested=', len(codes), 'codes_with_rows=', out['resolvedRows'])
-          for c in codes:
-              print(c, grouped.get(c, []))
-          PY
-      - name: Inspect exact raw relations for unresolved samples
-        run: |
-          python - <<'PY'
-          import json, sqlite3
-          con = sqlite3.connect("file:/tmp/mirror.sqlite?mode=ro", uri=True)
-          samples = ["c07110020", "c07050010", "c03031470", "c01000010", "c01000100", "c01000030", "c01000050"]
-          print("=== SAMPLE RAW ROWS ===")
-          for code in samples:
-              rows = con.execute(
-                  "SELECT internal_code, chara_id, model_id, base_slug, slug, is_primary, data "
-                  "FROM inagle_characters WHERE internal_code=? ORDER BY is_primary DESC NULLS LAST, rowid",
-                  (code,),
-              ).fetchall()
-              for row in rows:
-                  raw = row[6]
-                  try:
-                      raw = json.loads(raw) if raw else None
-                  except Exception:
-                      pass
-                  print(json.dumps({
-                      "internalCode": row[0], "charaId": row[1], "modelId": row[2],
-                      "baseSlug": row[3], "slug": row[4], "isPrimary": row[5], "data": raw,
-                  }, ensure_ascii=False, sort_keys=True))
+          errors = {code: rows for code, rows in records.items() if rows and rows[0].get("_error")}
+          print("RESULT requested=", len(codes), "model_ids=", len(resolved), "errors=", len(errors))
+          for code in codes:
+              rows = records[code]
+              if not rows:
+                  print(code, "NO_ROW")
+              elif rows[0].get("_error"):
+                  print(code, "ERROR", rows[0]["_error"])
+              else:
+                  row = rows[0]
+                  print(code, "model_id=", row.get("model_id"), "chara_id=", row.get("chara_id"), "zukan_order=", row.get("zukan_order"))
 
-          print("=== TECHNICAL TABLES/COLUMNS ===")
-          for (table,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'inagle_%' ORDER BY name"):
-              cols = [r[1] for r in con.execute(f'PRAGMA table_info("{table}")')]
-              relevant = [c for c in cols if any(k in c.lower() for k in ("chara", "model", "body", "base"))]
-              if relevant:
-                  print(table, relevant)
-
-          chara_ids = [
-              r[0] for code in samples[:3]
-              for r in con.execute("SELECT chara_id FROM inagle_characters WHERE internal_code=? AND chara_id IS NOT NULL", (code,))
-          ]
-          print("=== EXACT CHARA-ID CROSS REFERENCES ===")
-          for (table,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'inagle_%' ORDER BY name"):
-              info = con.execute(f'PRAGMA table_info("{table}")').fetchall()
-              cols = [r[1] for r in info]
-              candidates = [c for c in cols if "chara" in c.lower() and ("id" in c.lower() or "base" in c.lower())]
-              for col in candidates:
-                  for cid in chara_ids:
-                      try:
-                          rows = con.execute(f'SELECT * FROM "{table}" WHERE "{col}"=? LIMIT 5', (cid,)).fetchall()
-                      except sqlite3.Error:
-                          continue
-                      if rows:
-                          print("HIT", table, col, cid, "columns=", cols, "rows=", rows)
+          out = {
+              "version": 1,
+              "source": "https://nie.aphrody.com/api/v1/chara",
+              "requested": len(codes),
+              "resolvedModelIds": len(resolved),
+              "records": records,
+          }
+          Path("data/nie_live_model_ids_for_body_profiles.json").write_text(
+              json.dumps(out, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
           PY
-      - name: Upload exact model ids
+      - name: Upload live exact model ids
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nie-exact-model-ids
+          name: nie-live-model-ids
           if-no-files-found: error
-          path: data/nie_model_ids_for_body_profiles.json
+          path: data/nie_live_model_ids_for_body_profiles.json
