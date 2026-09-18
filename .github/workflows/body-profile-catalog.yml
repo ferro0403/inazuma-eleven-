@@ -1,4 +1,4 @@
-name: Resolve exact Victory Road body aliases
+name: Resolve latest G4 Blender body profiles
 
 on:
   push:
@@ -10,169 +10,78 @@ permissions:
   contents: read
 
 jobs:
-  resolve:
+  resolve-latest:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Probe authoritative lookup and NIE mirror
+      - name: Resolve unresolved codes against latest authoritative lookup
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq msitools
           curl -L --fail --retry 3 -o /tmp/chara_model_lookup.json \
             https://raw.githubusercontent.com/The-RealBobi/G4_Blender/main/chara_model_lookup.json
-          curl -L --fail --retry 3 -o /tmp/niers.msi \
-            https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers_0.5.9_x64_en-US.msi
-          mkdir -p /tmp/niers-msi
-          msiextract -C /tmp/niers-msi /tmp/niers.msi >/dev/null
           python - <<'PY'
-          import ast, gzip, json, re, sqlite3, urllib.request, zlib
+          import ast, json, re, urllib.request
           from pathlib import Path
 
           old_url = "https://raw.githubusercontent.com/ferro0403/inazuma-eleven-/85d116e6dfcaa2995b596e212a2ce3b7a1f1b11f/.github/workflows/body-profile-catalog.yml"
           with urllib.request.urlopen(old_url, timeout=60) as r:
               old = r.read().decode("utf-8")
           m = re.search(r"^\s*codes\s*=\s*(\[[^\n]+\])", old, re.M)
-          if not m:
-              raise RuntimeError("missing unresolved code list")
           codes = ast.literal_eval(m.group(1))
-          assert len(codes) == 87, len(codes)
+          assert len(codes) == 87
 
-          # 1) Latest authoritative G4_Blender lookup.
           lookup = json.loads(Path("/tmp/chara_model_lookup.json").read_text(encoding="utf-8"))
-          print("LOOKUP_KEYS", list(lookup)[:20])
-          for k, v in lookup.items():
-              if isinstance(v, dict):
-                  print("LOOKUP_SECTION", k, "dict", len(v))
-              elif isinstance(v, list):
-                  print("LOOKUP_SECTION", k, "list", len(v))
-              else:
-                  print("LOOKUP_SECTION", k, type(v).__name__, repr(v)[:200])
+          models = lookup["models"]
+          bodies = lookup["bodies"]
+          print("COUNTS models=", len(models), "bodies=", len(bodies))
+          print("MODEL_SAMPLE", json.dumps(list(models.items())[:3], ensure_ascii=False))
+          print("BODY_SAMPLE", json.dumps(list(bodies.items())[:3], ensure_ascii=False))
 
-          chars = lookup.get("characters") if isinstance(lookup.get("characters"), dict) else {}
-          bodies = lookup.get("bodies") if isinstance(lookup.get("bodies"), dict) else {}
-          latest = {}
+          def contains_code(value, code):
+              if isinstance(value, str):
+                  return code.casefold() in value.casefold()
+              if isinstance(value, dict):
+                  return any(contains_code(k, code) or contains_code(v, code) for k, v in value.items())
+              if isinstance(value, list):
+                  return any(contains_code(v, code) for v in value)
+              return False
+
+          results={}
           for code in codes:
-              body_id = chars.get(code)
-              body = bodies.get(str(body_id)) if body_id is not None else None
-              latest[code] = {
-                  "bodyId": body_id,
-                  "bodyTypeIdx": body.get("bodyProfile") if isinstance(body, dict) else None,
-                  "body": body if isinstance(body, dict) else None,
-              }
-          print("LATEST_DIRECT", sum(v["bodyTypeIdx"] is not None for v in latest.values()), "/", len(codes))
-          for code, row in latest.items():
-              if row["bodyTypeIdx"] is not None:
-                  print("LATEST_RESOLVED", code, row["bodyId"], row["bodyTypeIdx"])
-
-          # 2) Packaged NIE mirror: inspect missing rows and every relevant table/column.
-          roots = list(Path("/tmp/niers-msi").rglob("mirror.sqlite.gz"))
-          if len(roots) != 1:
-              roots = [p for p in Path("/tmp/niers-msi").rglob("*.gz") if "mirror" in p.name.lower()]
-          if len(roots) != 1:
-              raise RuntimeError(f"expected one mirror, got {roots}")
-          db = Path("/tmp/mirror.sqlite")
-          with gzip.open(roots[0], "rb") as src, db.open("wb") as dst:
-              while chunk := src.read(1024 * 1024):
-                  dst.write(chunk)
-          con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-          con.row_factory = sqlite3.Row
-
-          rows = {}
-          placeholders = ",".join("?" for _ in codes)
-          for r in con.execute(f"SELECT * FROM inagle_characters WHERE internal_code IN ({placeholders})", codes):
-              d = dict(r)
-              code = d.get("internal_code")
-              findings = {}
-              for key, val in d.items():
-                  if val is None:
+              exact=[]
+              if code in models:
+                  exact.append({"key":code,"value":models[code]})
+              # Also locate the code anywhere in an entry; this is exact string linkage, not heuristic.
+              nested=[]
+              for key, value in models.items():
+                  if key == code:
                       continue
-                  if key in {"internal_code","chara_id","model_id","base_slug","zukan_order"}:
-                      findings[key] = val
-                  if isinstance(val, str) and key in {"data","sheet_data","game_appearances","teams"}:
-                      try:
-                          parsed = json.loads(val)
-                      except Exception:
-                          parsed = val
-                      findings[key] = parsed
-              rows[code] = findings
+                  if contains_code(key, code) or contains_code(value, code):
+                      nested.append({"key":key,"value":value})
+                      if len(nested) >= 20:
+                          break
+              results[code]={"exact":exact,"nested":nested}
+              if exact or nested:
+                  print("MATCH", code, json.dumps(results[code], ensure_ascii=False))
 
-          # Search all columns whose names are semantically relevant for exact tokens.
-          tokens = {}
-          for code in codes:
-              crc = zlib.crc32(code.encode()) & 0xffffffff
-              tokens[code] = {code.lower(), f"{crc:08x}", f"0x{crc:08x}"}
-          token_to_code = {tok: code for code, ts in tokens.items() for tok in ts}
-
-          schema = {}
-          hits = {c: [] for c in codes}
-          tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
-          relevant_name = re.compile(r"(model|chara|character|internal|code|base|variant|costume|form|data)", re.I)
-          for table in tables:
-              cols = [r[1] for r in con.execute(f'PRAGMA table_info("{table}")')]
-              rel = [c for c in cols if relevant_name.search(c)]
-              if not rel:
-                  continue
-              schema[table] = rel
-              quoted = ",".join('"' + c.replace('"','""') + '"' for c in rel)
-              try:
-                  cur = con.execute(f'SELECT rowid,{quoted} FROM "{table}"')
-              except sqlite3.DatabaseError:
-                  continue
-              for row in cur:
-                  rowid = row[0]
-                  for ci, col in enumerate(rel, start=1):
-                      val = row[ci]
-                      if val is None:
-                          continue
-                      s = str(val).lower()
-                      # Fast prefilter: only cells containing c0/c1 or 8-hex token need checks.
-                      if "c0" not in s and "c1" not in s and "0x" not in s and len(s) < 8:
-                          continue
-                      for tok, code in token_to_code.items():
-                          if tok in s:
-                              excerpt = str(val)
-                              if len(excerpt) > 500:
-                                  pos = s.find(tok)
-                                  excerpt = excerpt[max(0,pos-180):pos+len(tok)+180]
-                              item={"table":table,"column":col,"rowid":rowid,"token":tok,"value":excerpt}
-                              if item not in hits[code] and len(hits[code]) < 50:
-                                  hits[code].append(item)
-
-          payload = {
-              "version": 2,
-              "codes": codes,
-              "authoritativeLookup": {
-                  "source": "The-RealBobi/G4_Blender/main/chara_model_lookup.json",
-                  "characters": len(chars),
-                  "bodies": len(bodies),
-                  "results": latest,
-              },
-              "mirror": {
-                  "release": "aphrody-code/nie v0.5.9",
-                  "characterRows": rows,
-                  "relevantSchema": schema,
-                  "crossTableHits": hits,
-              },
-          }
-          Path("data/body_profile_alias_probe.json").write_text(
-              json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          print("MATCHED_CODES", sum(bool(v["exact"] or v["nested"]) for v in results.values()), "/", len(codes))
+          Path("data/latest_g4_body_aliases.json").write_text(
+              json.dumps({
+                  "version":1,
+                  "source":"The-RealBobi/G4_Blender/main/chara_model_lookup.json",
+                  "lookupVersion":lookup.get("version"),
+                  "modelCount":len(models),
+                  "bodyCount":len(bodies),
+                  "results":results,
+              },ensure_ascii=False,indent=2)+"\n",
+              encoding="utf-8",
           )
-
-          print("MIRROR_ROWS", len(rows))
-          useful=0
-          for code in codes:
-              external=[h for h in hits[code] if h["table"] != "inagle_characters" or h["column"] not in {"internal_code","chara_id"}]
-              if external:
-                  useful += 1
-                  print("CROSS_HIT", code, json.dumps(external[:6], ensure_ascii=False))
-          print("CROSS_CODES", useful)
           PY
-      - name: Upload probe
+      - name: Upload exact latest lookup matches
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: exact-body-alias-probe
+          name: latest-g4-body-aliases
           if-no-files-found: error
-          path: data/body_profile_alias_probe.json
+          path: data/latest_g4_body_aliases.json
