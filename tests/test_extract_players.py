@@ -93,6 +93,14 @@ class ExtractPlayersTests(unittest.TestCase):
         players = extract_players.extract_records(markup, extract_players.SOURCE_URL)
         self.assertEqual(players[0]["internalCode"], "c01000100")
 
+    def test_uniform_mesh_profile_uses_body_then_mesh_fallback(self):
+        self.assertEqual(extract_players.preferred_uniform_mesh_profile(0, 0), 0)
+        self.assertEqual(extract_players.preferred_uniform_mesh_profile(6, 6), 6)
+        self.assertEqual(extract_players.preferred_uniform_mesh_profile(10, 2), 2)
+        self.assertEqual(extract_players.preferred_uniform_mesh_profile(17, 5), 5)
+        self.assertEqual(extract_players.preferred_uniform_mesh_profile(2, 255), 2)
+        self.assertEqual(extract_players.preferred_uniform_mesh_profile(101, 101), 0)
+
     def test_body_profiles_are_resolved_from_authoritative_lookup(self):
         lookup = {
             "models": {
@@ -144,10 +152,13 @@ class ExtractPlayersTests(unittest.TestCase):
         self.assertEqual(unresolved, [])
         self.assertEqual(players[0]["bodyProfile"], 0)
         self.assertEqual(players[0]["bodyModel"], "base_normal_00")
+        self.assertEqual(players[0]["uniformMeshProfile"], 0)
         self.assertEqual(players[1]["bodyProfile"], 6)
         self.assertEqual(players[1]["bodyModel"], "base_bigman_01")
+        self.assertEqual(players[1]["uniformMeshProfile"], 6)
         self.assertEqual(players[2]["bodyProfile"], 2)
         self.assertEqual(players[2]["bodyModel"], "base_normal_02")
+        self.assertEqual(players[2]["uniformMeshProfile"], 2)
         self.assertEqual(players[2]["bodySkeleton"], "c000201")
 
     def test_writes_browser_ready_javascript(self):
