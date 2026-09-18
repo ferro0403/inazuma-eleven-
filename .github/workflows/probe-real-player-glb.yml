@@ -1,0 +1,75 @@
+name: Probe real Victory Road GLB
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+    paths:
+      - ".github/workflows/probe-real-player-glb.yml"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe real assembled character GLBs
+        shell: bash
+        run: |
+          set -u
+          mkdir -p out
+          : > out/report.txt
+
+          for code in c07110020 c01000010 c01001900; do
+            echo "=== $code ===" | tee -a out/report.txt
+            ok=0
+            for base in "https://cdn.rosegriffon.fr/model-full" "https://aphrody.com/model-full"; do
+              url="$base/$code.glb"
+              file="out/$code.glb"
+              rm -f "$file"
+              status=$(curl -L -sS --connect-timeout 15 --max-time 90 -w "%{http_code}" -o "$file" "$url" || true)
+              bytes=$(wc -c < "$file" 2>/dev/null || echo 0)
+              echo "$url -> HTTP $status, bytes=$bytes" | tee -a out/report.txt
+              if [ "$status" = "200" ] && [ "$bytes" -gt 20 ]; then
+                magic=$(head -c 4 "$file" || true)
+                echo "magic=$magic" | tee -a out/report.txt
+                if [ "$magic" = "glTF" ]; then
+                  ok=1
+                  break
+                fi
+              fi
+            done
+
+            if [ "$ok" = "1" ]; then
+              CODE="$code" python - <<'PY' | tee -a out/report.txt
+import json, os, struct
+code=os.environ["CODE"]
+p=f"out/{code}.glb"
+with open(p,"rb") as f:
+    b=f.read()
+magic,version,total=struct.unpack_from("<4sII",b,0)
+json_len,json_type=struct.unpack_from("<II",b,12)
+doc=json.loads(b[20:20+json_len].decode("utf-8").rstrip("\x00 "))
+print(f"GLB version={version} total={total}")
+for key in ("scenes","nodes","meshes","materials","textures","images","skins","animations"):
+    print(f"{key}={len(doc.get(key,[]))}")
+print("mesh_names=", [x.get("name") for x in doc.get("meshes",[])[:30]])
+print("node_names=", [x.get("name") for x in doc.get("nodes",[])[:80]])
+print("skin_names=", [x.get("name") for x in doc.get("skins",[])[:20]])
+print("material_names=", [x.get("name") for x in doc.get("materials",[])[:50]])
+PY
+            else
+              rm -f "out/$code.glb"
+              echo "NO_VALID_GLB" | tee -a out/report.txt
+            fi
+            echo | tee -a out/report.txt
+          done
+
+      - name: Show report
+        run: cat out/report.txt
+
+      - name: Upload probe output
+        uses: actions/upload-artifact@v4
+        with:
+          name: victory-road-real-glb-probe
+          path: out/
+          if-no-files-found: error
