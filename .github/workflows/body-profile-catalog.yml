@@ -24,6 +24,7 @@ jobs:
           import time
           import urllib.error
           import urllib.request
+          from concurrent.futures import ThreadPoolExecutor, as_completed
           from pathlib import Path
 
           codes = ["c01000915","c02024210","c02024220","c02024230","c04017360","c04017410","c06037140","c04017470","c03030710","c03031450","c03031470","c11803100","c07020120","c11807250","c07040120","c07050060","c07050070","c07050080","c07050090","c07050100","c07050110","c07050120","c07050020","c07050030","c07050040","c07050010","c11807280","c07070030","c07070040","c07070050","c07070060","c07070070","c07070080","c07070090","c07070100","c07070020","c07070110","c11807230","c07080050","c07080060","c07080070","c07080080","c07080090","c07080100","c07090100","c07090090","c07090070","c07090110","c07090080","c07090050","c07090060","c07090040","c07090120","c07090030","c07090140","c07100040","c07100100","c07100110","c07100090","c07100080","c07100140","c07100120","c11807200","c07110020","c11807270","c11807260","c07120020","c07120010","c07120050","c07120080","c07120070","c07120030","c07120060","c07120090","c08130110","c08130100","c08130090","c08130080","c08130060","c08130050","c08130030","c08130020","c08130010","c08130140","c08130130","c08130120","c11807240"]
@@ -38,7 +39,7 @@ jobs:
           resolved = {}
           failures = []
 
-          for code in codes:
+          def probe(code):
               last_error = None
               for host in hosts:
                   url = f"{host}/model-report/{code}.json"
@@ -52,22 +53,27 @@ jobs:
                           raise RuntimeError(f"invalid body_type_idx {idx!r}")
                       if base != expected[idx]:
                           raise RuntimeError(f"body_base mismatch {base!r} != {expected[idx]!r}")
-                      resolved[code] = {
+                      return code, {
                           "bodyTypeIdx": idx,
                           "bodyModel": base,
                           "sourceUrl": url,
                           "catalogues": data.get("catalogues"),
                           "notes": data.get("notes"),
-                      }
-                      print(f"OK {code}: {idx} {base} via {host}")
-                      last_error = None
-                      break
+                      }, None
                   except Exception as exc:
                       last_error = f"{type(exc).__name__}: {exc}"
-              if last_error:
-                  failures.append({"internalCode": code, "error": last_error})
-                  print(f"FAIL {code}: {last_error}")
-              time.sleep(0.05)
+              return code, None, last_error
+
+          with ThreadPoolExecutor(max_workers=8) as pool:
+              futures = [pool.submit(probe, code) for code in codes]
+              for future in as_completed(futures):
+                  code, result, error = future.result()
+                  if result is not None:
+                      resolved[code] = result
+                      print(f"OK {code}: {result['bodyTypeIdx']} {result['bodyModel']}")
+                  else:
+                      failures.append({"internalCode": code, "error": error})
+                      print(f"FAIL {code}: {error}")
 
           out = {
               "version": 1,
