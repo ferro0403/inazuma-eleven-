@@ -1,0 +1,123 @@
+name: Probe Wayback Mark GLB
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+    paths:
+      - .github/workflows/probe-wayback-mark-glb.yml
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Query public web archives
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p wayback
+          python - <<'PY'
+          import hashlib, json, pathlib, time, urllib.parse, urllib.request, urllib.error
+
+          targets = [
+              "https://cdn.rosegriffon.fr/model-full/c01000010.glb",
+              "https://cdn.rosegriffon.fr/model-full/c01000010.glb?v=5",
+              "https://cdn.aphrody.com/model-full/c01000010.glb",
+              "https://cdn.rosegriffon.fr/dx11/chr/_face/01_IE1/c01000010/c01000010.png",
+              "https://cdn.rosegriffon.fr/dx11/chr/_uniform/u000101/u010101_10.png",
+          ]
+          report=[]
+          saved=False
+          for target in targets:
+              params = urllib.parse.urlencode({
+                  "url": target,
+                  "output": "json",
+                  "filter": "statuscode:200",
+                  "filter": "mimetype:application/octet-stream",
+                  "collapse": "digest",
+                  "fl": "timestamp,original,statuscode,mimetype,digest,length",
+              })
+              # Build explicitly because urlencode cannot represent duplicate filter keys.
+              cdx = (
+                  "https://web.archive.org/cdx/search/cdx?"
+                  + urllib.parse.urlencode({
+                      "url": target,
+                      "output": "json",
+                      "collapse": "digest",
+                      "fl": "timestamp,original,statuscode,mimetype,digest,length",
+                  })
+                  + "&filter=statuscode%3A200"
+              )
+              row={"target":target,"cdx":cdx}
+              try:
+                  req=urllib.request.Request(cdx,headers={"User-Agent":"Mozilla/5.0"})
+                  with urllib.request.urlopen(req,timeout=40) as resp:
+                      raw=resp.read()
+                  row["cdx_status"]=200
+                  row["cdx_bytes"]=len(raw)
+                  try:
+                      data=json.loads(raw)
+                  except Exception:
+                      data=[]
+                      row["cdx_head"]=raw[:300].decode("utf-8","replace")
+                  captures=[]
+                  if isinstance(data,list) and len(data)>1:
+                      headers=data[0]
+                      for vals in data[1:]:
+                          captures.append(dict(zip(headers,vals)))
+                  row["captures"]=captures[:50]
+                  # Try newest captures first. id_ asks Wayback for the archived payload unchanged.
+                  for cap in reversed(captures):
+                      ts=cap.get("timestamp")
+                      original=cap.get("original") or target
+                      archived=f"https://web.archive.org/web/{ts}id_/{original}"
+                      try:
+                          req2=urllib.request.Request(archived,headers={"User-Agent":"Mozilla/5.0"})
+                          with urllib.request.urlopen(req2,timeout=60) as resp2:
+                              blob=resp2.read()
+                          probe={
+                              "timestamp":ts,
+                              "url":archived,
+                              "status":getattr(resp2,"status",200),
+                              "bytes":len(blob),
+                              "sha256":hashlib.sha256(blob).hexdigest(),
+                              "headHex":blob[:16].hex(),
+                              "contentType":resp2.headers.get("Content-Type"),
+                          }
+                          row.setdefault("archive_probes",[]).append(probe)
+                          if blob[:4] == b"glTF":
+                              pathlib.Path("wayback/c01000010.glb").write_bytes(blob)
+                              saved=True
+                              row["saved_glb"]=True
+                              break
+                          if blob.startswith(b"\x89PNG\r\n\x1a\n"):
+                              name="mark-or-raimon-"+ts+".png"
+                              pathlib.Path("wayback",name).write_bytes(blob)
+                      except Exception as exc:
+                          row.setdefault("archive_probes",[]).append({
+                              "timestamp":ts,"url":archived,"error":repr(exc)
+                          })
+                      time.sleep(0.5)
+              except Exception as exc:
+                  row["cdx_error"]=repr(exc)
+              report.append(row)
+
+          pathlib.Path("wayback/report.json").write_text(json.dumps(report,indent=2))
+          summary=[]
+          for row in report:
+              summary.append(f"TARGET {row['target']}")
+              summary.append(f"captures={len(row.get('captures',[]))} cdx_error={row.get('cdx_error')}")
+              for p in row.get("archive_probes",[])[:10]:
+                  summary.append("  "+json.dumps(p,ensure_ascii=False))
+          summary.append(f"saved_glb={saved}")
+          pathlib.Path("wayback/summary.txt").write_text("\n".join(summary)+"\n")
+          print(pathlib.Path("wayback/summary.txt").read_text())
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wayback-mark-glb-probe
+          path: wayback/
+          if-no-files-found: error
