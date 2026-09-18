@@ -21,11 +21,11 @@ jobs:
       - name: Extract packaged NIE mirror and query model ids
         run: |
           set -euo pipefail
-          command -v 7z >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full; }
+          command -v msiextract >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq msitools; }
           curl -L --fail --retry 3 -o /tmp/niers.msi \
             https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers_0.5.9_x64_en-US.msi
           mkdir -p /tmp/niers-msi
-          7z x -y /tmp/niers.msi -o/tmp/niers-msi >/tmp/7z.log
+          msiextract -C /tmp/niers-msi /tmp/niers.msi
           echo "=== packaged database candidates ==="
           find /tmp/niers-msi -type f \( -iname '*mirror*' -o -iname '*.gz' -o -iname '*.sqlite' \) -printf '%p %s bytes\n' | head -100
           python - <<'PY'
