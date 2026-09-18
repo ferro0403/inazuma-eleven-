@@ -14,74 +14,127 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: List public assets bucket
+      - name: List public assets bucket through Supabase origin
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p storage-probe
           curl -L -sS -A 'Mozilla/5.0' 'https://azalee.rosegriffon.fr/_next/static/chunks/30b1vr2jp5k0d.js' -o storage-probe/client.js
           python - <<'PY'
-          import base64, json, re, urllib.request, pathlib
-          source=pathlib.Path('storage-probe/client.js').read_text('utf8',errors='ignore')
-          tokens=sorted(set(re.findall(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', source)))
-          candidates=[]
+          import base64
+          import json
+          import pathlib
+          import re
+          import urllib.request
+
+          source = pathlib.Path('storage-probe/client.js').read_text('utf8', errors='ignore')
+          tokens = sorted(set(re.findall(
+              r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+',
+              source,
+          )))
+          candidates = []
           for tok in tokens:
               try:
-                  payload=tok.split('.')[1]
-                  payload += '='*(-len(payload)%4)
-                  obj=json.loads(base64.urlsafe_b64decode(payload))
-                  if obj.get('role')=='anon':
-                      candidates.append((int(obj.get('iat',0)),tok,obj))
+                  payload = tok.split('.')[1]
+                  payload += '=' * (-len(payload) % 4)
+                  meta = json.loads(base64.urlsafe_b64decode(payload))
+                  if meta.get('role') == 'anon' and meta.get('ref'):
+                      candidates.append((int(meta.get('iat', 0)), tok, meta))
               except Exception:
                   pass
+
           if not candidates:
               raise SystemExit('No public anon token found in browser bundle')
-          _, token, meta=max(candidates)
-          project_ref=str(meta.get('ref') or '').strip()\n          if not project_ref:\n              raise SystemExit('Anon token has no Supabase project ref')\n          endpoint=f'https://{project_ref}.supabase.co/storage/v1/object/list/assets'\n          print('DIRECT_SUPABASE', endpoint)
-          headers={'apikey':token,'Authorization':'Bearer '+token,'Content-Type':'application/json'}
-          queue=['']
-          seen=set()
-          all_rows=[]
-          hits=[]
-          max_prefixes=500
-          while queue and len(seen)<max_prefixes and len(all_rows)<30000:
-              prefix=queue.pop(0)
-              if prefix in seen: continue
+
+          _, token, meta = max(candidates)
+          project_ref = str(meta['ref']).strip()
+          endpoint = f'https://{project_ref}.supabase.co/storage/v1/object/list/assets'
+          print('DIRECT_SUPABASE', endpoint)
+
+          headers = {
+              'apikey': token,
+              'Authorization': 'Bearer ' + token,
+              'Content-Type': 'application/json',
+          }
+
+          queue = ['']
+          seen = set()
+          all_rows = []
+          hits = []
+          max_prefixes = 500
+
+          while queue and len(seen) < max_prefixes and len(all_rows) < 30000:
+              prefix = queue.pop(0)
+              if prefix in seen:
+                  continue
               seen.add(prefix)
-              offset=0
-              while offset<10000:
-                  body=json.dumps({'prefix':prefix,'limit':1000,'offset':offset,'sortBy':{'column':'name','order':'asc'}}).encode()
-                  req=urllib.request.Request(endpoint,data=body,headers=headers,method='POST')
+              offset = 0
+              while offset < 10000:
+                  body = json.dumps({
+                      'prefix': prefix,
+                      'limit': 1000,
+                      'offset': offset,
+                      'sortBy': {'column': 'name', 'order': 'asc'},
+                  }).encode()
+                  req = urllib.request.Request(
+                      endpoint,
+                      data=body,
+                      headers=headers,
+                      method='POST',
+                  )
                   try:
-                      with urllib.request.urlopen(req,timeout=30) as resp:
-                          rows=json.load(resp)
+                      with urllib.request.urlopen(req, timeout=30) as resp:
+                          rows = json.load(resp)
                   except Exception as exc:
                       pathlib.Path('storage-probe/error.txt').write_text(repr(exc))
-                      print('LIST_ERROR',prefix,repr(exc))
+                      print('LIST_ERROR', prefix, repr(exc))
                       queue.clear()
                       break
-                  if not isinstance(rows,list): break
+
+                  if not isinstance(rows, list):
+                      break
+
                   for row in rows:
-                      name=str(row.get('name',''))
-                      full=(prefix+'/'+name).strip('/')
-                      all_rows.append({'prefix':prefix,**row,'full':full})
-                      lower=full.lower()
-                      if any(x in lower for x in ['.glb','.gltf','.g4md','.g4mg','.g4tx','.g4sk','c01000010','u000101','u010101','raimon','model','3d']):
-                          hits.append({'full':full,'id':row.get('id'),'metadata':row.get('metadata')})
-                      if row.get('id') is None and row.get('metadata') is None and full and full not in seen:
+                      name = str(row.get('name', ''))
+                      full = (prefix + '/' + name).strip('/')
+                      all_rows.append({'prefix': prefix, **row, 'full': full})
+                      lower = full.lower()
+                      if any(x in lower for x in [
+                          '.glb', '.gltf', '.g4md', '.g4mg', '.g4tx', '.g4sk',
+                          'c01000010', 'u000101', 'u010101', 'raimon', 'model', '3d',
+                      ]):
+                          hits.append({
+                              'full': full,
+                              'id': row.get('id'),
+                              'metadata': row.get('metadata'),
+                          })
+                      if (
+                          row.get('id') is None
+                          and row.get('metadata') is None
+                          and full
+                          and full not in seen
+                      ):
                           queue.append(full)
-                  if len(rows)<1000: break
-                  offset+=1000
+
+                  if len(rows) < 1000:
+                      break
+                  offset += 1000
+
           pathlib.Path('storage-probe/report.json').write_text(json.dumps({
-              'token_meta':{k:meta.get(k) for k in ('iss','ref','role','iat','exp')},
-              'prefixes':len(seen),'rows':len(all_rows),'hits':hits
-          },indent=2))
+              'token_meta': {k: meta.get(k) for k in ('iss', 'ref', 'role', 'iat', 'exp')},
+              'endpoint': endpoint,
+              'prefixes': len(seen),
+              'rows': len(all_rows),
+              'hits': hits,
+          }, indent=2))
           pathlib.Path('storage-probe/root_and_hits.txt').write_text(
-              f'prefixes={len(seen)} rows={len(all_rows)} hits={len(hits)}\n'+
-              '\n'.join(h['full'] for h in hits)+'\n'
+              f'prefixes={len(seen)} rows={len(all_rows)} hits={len(hits)}\n'
+              + '\n'.join(h['full'] for h in hits)
+              + '\n'
           )
           print(pathlib.Path('storage-probe/root_and_hits.txt').read_text())
           PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: azalee-public-storage-probe
