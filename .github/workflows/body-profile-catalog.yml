@@ -1,4 +1,4 @@
-name: Resolve latest G4 Blender body profiles
+name: Probe NIE model reports for exact body aliases
 
 on:
   push:
@@ -10,18 +10,16 @@ permissions:
   contents: read
 
 jobs:
-  resolve-latest:
+  reports:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Resolve unresolved codes against latest authoritative lookup
+      - name: Read exact assembly reports
         run: |
           set -euo pipefail
-          curl -L --fail --retry 3 -o /tmp/chara_model_lookup.json \
-            https://raw.githubusercontent.com/The-RealBobi/G4_Blender/main/chara_model_lookup.json
           python - <<'PY'
-          import ast, json, re, urllib.request
+          import ast, json, re, urllib.error, urllib.request
           from pathlib import Path
 
           old_url = "https://raw.githubusercontent.com/ferro0403/inazuma-eleven-/85d116e6dfcaa2995b596e212a2ce3b7a1f1b11f/.github/workflows/body-profile-catalog.yml"
@@ -31,57 +29,65 @@ jobs:
           codes = ast.literal_eval(m.group(1))
           assert len(codes) == 87
 
-          lookup = json.loads(Path("/tmp/chara_model_lookup.json").read_text(encoding="utf-8"))
-          models = lookup["models"]
-          bodies = lookup["bodies"]
-          print("COUNTS models=", len(models), "bodies=", len(bodies))
-          print("MODEL_SAMPLE", json.dumps(list(models.items())[:3], ensure_ascii=False))
-          print("BODY_SAMPLE", json.dumps(list(bodies.items())[:3], ensure_ascii=False))
-
-          def contains_code(value, code):
-              if isinstance(value, str):
-                  return code.casefold() in value.casefold()
-              if isinstance(value, dict):
-                  return any(contains_code(k, code) or contains_code(v, code) for k, v in value.items())
-              if isinstance(value, list):
-                  return any(contains_code(v, code) for v in value)
-              return False
-
+          bases = [
+              "https://cdn.aphrody.com/model-report/{code}.json",
+              "https://cdn.rosegriffon.fr/model-report/{code}.json",
+          ]
           results={}
           for code in codes:
-              exact=[]
-              if code in models:
-                  exact.append({"key":code,"value":models[code]})
-              # Also locate the code anywhere in an entry; this is exact string linkage, not heuristic.
-              nested=[]
-              for key, value in models.items():
-                  if key == code:
-                      continue
-                  if contains_code(key, code) or contains_code(value, code):
-                      nested.append({"key":key,"value":value})
-                      if len(nested) >= 20:
-                          break
-              results[code]={"exact":exact,"nested":nested}
-              if exact or nested:
-                  print("MATCH", code, json.dumps(results[code], ensure_ascii=False))
-
-          print("MATCHED_CODES", sum(bool(v["exact"] or v["nested"]) for v in results.values()), "/", len(codes))
-          Path("data/latest_g4_body_aliases.json").write_text(
+              attempts=[]
+              report=None
+              for tmpl in bases:
+                  url=tmpl.format(code=code)
+                  try:
+                      req=urllib.request.Request(url,headers={"User-Agent":"inazuma-body-profile-audit/1.0"})
+                      with urllib.request.urlopen(req,timeout=45) as r:
+                          raw=r.read()
+                          status=r.status
+                      obj=json.loads(raw)
+                      attempts.append({"url":url,"status":status})
+                      report=obj
+                      break
+                  except Exception as exc:
+                      attempts.append({"url":url,"error":repr(exc)})
+              item={"attempts":attempts,"report":report}
+              results[code]=item
+              if isinstance(report,dict):
+                  cat=report.get("catalogues") or {}
+                  print("REPORT",code,
+                        "body_type_idx=",report.get("body_type_idx"),
+                        "chara_model_row=",cat.get("chara_model_row"),
+                        "body_row=",cat.get("body_row"),
+                        "body_objbin=",cat.get("body_objbin"),
+                        "notes=",json.dumps(report.get("notes"),ensure_ascii=False))
+              else:
+                  print("NO_REPORT",code,json.dumps(attempts))
+          usable_nonzero=[
+              code for code,item in results.items()
+              if isinstance(item["report"],dict)
+              and isinstance(item["report"].get("body_type_idx"),int)
+              and item["report"]["body_type_idx"] != 0
+          ]
+          direct=[
+              code for code,item in results.items()
+              if isinstance(item["report"],dict)
+              and (item["report"].get("catalogues") or {}).get("body_row") is not None
+          ]
+          print("SUMMARY reports=",sum(isinstance(v["report"],dict) for v in results.values()),
+                "direct_body_rows=",len(direct),
+                "safe_nonzero_manifest=",len(usable_nonzero))
+          Path("data/nie_model_reports_body_aliases.json").write_text(
               json.dumps({
                   "version":1,
-                  "source":"The-RealBobi/G4_Blender/main/chara_model_lookup.json",
-                  "lookupVersion":lookup.get("version"),
-                  "modelCount":len(models),
-                  "bodyCount":len(bodies),
+                  "sources":bases,
+                  "safeRule":"Accept body_type_idx when body_row is present, or nonzero value when body_row is absent because server fallback is exactly 0.",
                   "results":results,
-              },ensure_ascii=False,indent=2)+"\n",
-              encoding="utf-8",
-          )
+              },ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
           PY
-      - name: Upload exact latest lookup matches
+      - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: latest-g4-body-aliases
+          name: nie-model-reports-body-aliases
           if-no-files-found: error
-          path: data/latest_g4_body_aliases.json
+          path: data/nie_model_reports_body_aliases.json
