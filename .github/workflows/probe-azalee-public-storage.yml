@@ -19,13 +19,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p storage-probe
-          curl -L -sS -A 'Mozilla/5.0' 'https://azalee.rosegriffon.fr/chara/mark-evans-0x3055CF22' -o storage-probe/page.html
+          curl -L -sS -A 'Mozilla/5.0' 'https://azalee.rosegriffon.fr/_next/static/chunks/30b1vr2jp5k0d.js' -o storage-probe/client.js
           python - <<'PY'
           import base64, json, re, urllib.request, pathlib
-          page=pathlib.Path('storage-probe/page.html').read_text('utf8',errors='ignore')
-          # The browser bundle contains public Supabase anon JWTs. Select a valid-looking anon token
-          # dynamically; do not commit it to this repository.
-          tokens=sorted(set(re.findall(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', page)))
+          source=pathlib.Path('storage-probe/client.js').read_text('utf8',errors='ignore')
+          tokens=sorted(set(re.findall(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', source)))
           candidates=[]
           for tok in tokens:
               try:
@@ -37,7 +35,7 @@ jobs:
               except Exception:
                   pass
           if not candidates:
-              raise SystemExit('No public anon token found in page')
+              raise SystemExit('No public anon token found in browser bundle')
           _, token, meta=max(candidates)
           endpoint='https://azalee.rosegriffon.fr/storage/v1/object/list/assets'
           headers={'apikey':token,'Authorization':'Bearer '+token,'Content-Type':'application/json'}
@@ -70,7 +68,6 @@ jobs:
                       lower=full.lower()
                       if any(x in lower for x in ['.glb','.gltf','.g4md','.g4mg','.g4tx','.g4sk','c01000010','u000101','u010101','raimon','model','3d']):
                           hits.append({'full':full,'id':row.get('id'),'metadata':row.get('metadata')})
-                      # Supabase represents folders with id null and metadata null.
                       if row.get('id') is None and row.get('metadata') is None and full and full not in seen:
                           queue.append(full)
                   if len(rows)<1000: break
