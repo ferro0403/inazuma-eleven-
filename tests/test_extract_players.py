@@ -114,9 +114,24 @@ class ExtractPlayersTests(unittest.TestCase):
                     "body_mesh_profile": 2,
                     "g4sk_stem": "c000201",
                 },
+                # Shared skeleton/body assets are deliberately ignored even
+                # though their names also start with "c".
+                "shared-base-a": {
+                    "model_path": "_common/c000101/c000101.g4md",
+                    "body_profile": 0,
+                    "body_mesh_profile": 0,
+                    "g4sk_stem": "c000101",
+                },
+                "shared-base-b": {
+                    "model_path": "_face/20_EDIT/_base/c000101.g4md",
+                    "body_profile": 1,
+                    "body_mesh_profile": 1,
+                    "g4sk_stem": "c000101",
+                },
             }
         }
         index = extract_players.build_body_profile_index(lookup)
+        self.assertNotIn("c000101", index)
         players = [
             {"id": 2, "name": "Axel Blaze", "internalCode": "c01000100"},
             {"id": 5, "name": "Jack Wallside", "internalCode": "c01000030"},
