@@ -215,6 +215,15 @@ def internal_code_from(node: Node, base_url: str) -> str:
     return ""
 
 
+def preferred_uniform_mesh_profile(body_profile: int, body_mesh_profile: int) -> int:
+    """Return the standard 0..7 uniform mesh variant used by modular kits."""
+    if 0 <= body_profile <= 7:
+        return body_profile
+    if 0 <= body_mesh_profile <= 7:
+        return body_mesh_profile
+    return 0
+
+
 def build_body_profile_index(payload: object) -> dict[str, dict[str, object]]:
     """Build internalCode -> authoritative Victory Road body metadata."""
     if not isinstance(payload, dict) or not isinstance(payload.get("models"), dict):
@@ -240,6 +249,10 @@ def build_body_profile_index(payload: object) -> dict[str, dict[str, object]]:
         metadata: dict[str, object] = {
             "bodyProfile": body_profile,
             "bodyMeshProfile": body_mesh_profile,
+            "uniformMeshProfile": preferred_uniform_mesh_profile(
+                body_profile,
+                body_mesh_profile,
+            ),
         }
         skeleton = clean_text(str(model.get("g4sk_stem", "")))
         if skeleton:
