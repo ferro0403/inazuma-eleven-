@@ -1,0 +1,29 @@
+name: Validate Mark 3D probe script
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+    paths:
+      - "tools/export_mark_real_3d.ps1"
+      - "tools/PROVA_MARK_3D.bat"
+      - ".github/workflows/validate-mark-3d-probe.yml"
+  workflow_dispatch:
+
+jobs:
+  syntax:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell
+        shell: pwsh
+        run: |
+          $source = Get-Content -Raw -LiteralPath "tools/export_mark_real_3d.ps1"
+          [void][scriptblock]::Create($source)
+          Write-Host "PowerShell syntax OK"
+      - name: Check launcher target
+        shell: pwsh
+        run: |
+          $bat = Get-Content -Raw -LiteralPath "tools/PROVA_MARK_3D.bat"
+          if ($bat -notmatch "export_mark_real_3d\.ps1") { throw "Launcher target missing" }
+          Write-Host "Launcher target OK"
