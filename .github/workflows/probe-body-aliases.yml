@@ -18,6 +18,13 @@ jobs:
           python-version: "3.13"
       - name: Install image classifier deps
         run: pip install pillow numpy scikit-learn requests
+      - name: Download exact mapping artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/body-map
+          gh run download 35357488462 -n victory-road-player-body-profiles -D /tmp/body-map
+
       - name: Multi-view body-profile audit
         run: |
           python - <<'PY'
@@ -36,9 +43,7 @@ jobs:
           models=requests.get(
             "https://raw.githubusercontent.com/salty-max/kizuna/05c979efe9ef4565468d725db67c0913394f63dd/data/raw/character-models.json",
             timeout=30).json()
-          targets=["c04017360","c04017410","c06037140","c04017470","c11803100",
-                   "c07100100","c07100110","c07100090","c07100080","c07100140",
-                   "c07100120","c11807270"]
+          targets=["c01000915","c02024210","c02024220","c02024230","c04017360","c04017410","c06037140","c04017470","c03030710","c03031450","c03031470","c11803100","c07020120","c11807250","c07040120","c07050060","c07050070","c07050080","c07050090","c07050100","c07050110","c07050120","c07050020","c07050030","c07050040","c07050010","c11807280","c07070030","c07070040","c07070050","c07070060","c07070070","c07070080","c07070090","c07070100","c07070020","c07070110","c11807230","c07080050","c07080060","c07080070","c07080080","c07080090","c07080100","c07090100","c07090090","c07090070","c07090110","c07090080","c07090050","c07090060","c07090040","c07090120","c07090030","c07090140","c07100040","c07100100","c07100110","c07100090","c07100080","c07100140","c07100120","c11807200","c07110020","c11807270","c11807260","c07120020","c07120010","c07120050","c07120080","c07120070","c07120030","c07120060","c07120090","c08130110","c08130100","c08130090","c08130080","c08130060","c08130050","c08130030","c08130020","c08130010","c08130140","c08130130","c08130120","c11807240"]
           relevant={0,1,2,3,4,5,6,7,9,10,11,12,13,14,15,16}
           frames=(0,2,4,6)
 
@@ -133,7 +138,33 @@ jobs:
           }))
 
           clf.fit(X2,y2)
+          # Exact-name consensus from the user's actual 2,819-player dataset.
+          import re, unicodedata
+          ptxt=Path("data/players.js").read_text(encoding="utf-8")
+          players=json.loads(re.search(r"globalThis\\.INAZUMA_PLAYERS\\s*=\\s*(\\[[\\s\\S]*\\]);\\s*$",ptxt).group(1))
+          existing=json.loads(Path("/tmp/body-map/player_body_profiles.json").read_text())
+          by_name=defaultdict(list)
+          for p in players:
+              nk=unicodedata.normalize("NFKC",str(p.get("name") or "")).strip().casefold()
+              by_name[nk].append(p)
+          code_to_player={}
+          for pid,rec in existing.items():
+              if rec.get("internalCode"): code_to_player[rec["internalCode"]]=next((p for p in players if str(p.get("id"))==str(pid)),None)
+
+          name_consensus={}
+          for code in targets:
+              p=code_to_player.get(code)
+              if not p: continue
+              nk=unicodedata.normalize("NFKC",str(p.get("name") or "")).strip().casefold()
+              vals=[]
+              for peer in by_name[nk]:
+                  rec=existing.get(str(peer.get("id")),{})
+                  t=rec.get("bodyTypeIdx")
+                  if t is not None: vals.append(int(t))
+              name_consensus[code]=sorted(set(vals))
+
           print("TARGETS")
+          results=[]
           for code in targets:
             z=multifeat(code)
             if z is None: print(code,"NO_MULTI"); continue
@@ -142,8 +173,21 @@ jobs:
             zz=sc.transform([z])[0]; d=np.sqrt(((Z-zz)**2).mean(axis=1)); idx=np.argsort(d)[:12]
             neigh=[(kept_codes[i],int(y2[i]),round(float(d[i]),4)) for i in idx]
             labels=[x[1] for x in neigh]
-            print(code,"PRED",int(clf.classes_[order[0]]),"TOP",tops,
-                  "N12_TYPES",dict(sorted(Counter(labels).items())),
-                  "D12",round(float(d[idx[-1]]),4))
-            print("NEIGH",code,json.dumps(neigh))
+            row={
+              "internalCode":code,
+              "pred":int(clf.classes_[order[0]]),
+              "top":tops,
+              "n12Types":dict(sorted(Counter(labels).items())),
+              "d12":round(float(d[idx[-1]]),4),
+              "nameConsensus":name_consensus.get(code,[]),
+              "neighbours":neigh,
+            }
+            results.append(row)
+            print("FINAL",json.dumps(row,sort_keys=True))
+          Path("/tmp/body-profile-audit.json").write_text(json.dumps(results,indent=2)+"\\n")
           PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: body-profile-audit-87
+          path: /tmp/body-profile-audit.json
