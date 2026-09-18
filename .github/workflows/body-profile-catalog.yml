@@ -1,4 +1,4 @@
-name: Probe exact chara model-change aliases
+name: Inspect NIE packaged body/model indexes
 
 on:
   push:
@@ -10,96 +10,25 @@ permissions:
   contents: read
 
 jobs:
-  model-change:
+  inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Decode real chara_model_change CFG and match unresolved character CRCs
+      - name: Inspect NIE v0.5.9 package
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import ast, json, re, urllib.parse, urllib.request, zlib
-          from pathlib import Path
-
-          old_url = "https://raw.githubusercontent.com/ferro0403/inazuma-eleven-/85d116e6dfcaa2995b596e212a2ce3b7a1f1b11f/.github/workflows/body-profile-catalog.yml"
-          with urllib.request.urlopen(old_url, timeout=30) as r:
-              old=r.read().decode()
-          m=re.search(r"^\s*codes\s*=\s*(\[[^\n]+\])",old,re.M)
-          codes=ast.literal_eval(m.group(1))
-          assert len(codes)==87
-          wanted={}
-          for code in codes:
-              crc=zlib.crc32(code.encode()) & 0xffffffff
-              signed=crc if crc < 0x80000000 else crc-0x100000000
-              wanted[code]={"u32":crc,"signed":signed,"hex":f"0x{crc:08X}"}
-
-          path="data/common/gamedata/character/chara_model_change_1.00.92.00.cfg.bin"
-          hosts=["https://api.aphrody.com","https://nie.aphrody.com"]
-          decoded=None
-          attempts=[]
-          for host in hosts:
-              url=f"{host}/api/v1/formats/decode/{path}"
-              try:
-                  req=urllib.request.Request(url,headers={"Accept":"application/json","User-Agent":"inazuma-body-profile-audit/1.0"})
-                  with urllib.request.urlopen(req,timeout=20) as r:
-                      raw=r.read()
-                      attempts.append({"url":url,"status":r.status,"bytes":len(raw),"content_type":r.headers.get("content-type")})
-                  decoded=json.loads(raw)
-                  print("DECODE_OK",url,"bytes=",len(raw))
-                  break
-              except Exception as exc:
-                  attempts.append({"url":url,"error":repr(exc)})
-                  print("DECODE_FAIL",url,repr(exc))
-
-          results={c:[] for c in codes}
-          def scalar_matches(value, spec):
-              if isinstance(value,bool) or value is None: return False
-              if isinstance(value,int):
-                  return value in (spec["u32"],spec["signed"])
-              if isinstance(value,str):
-                  s=value.strip().lower()
-                  candidates={
-                      str(spec["u32"]).lower(),str(spec["signed"]).lower(),
-                      spec["hex"].lower(),f"{spec['u32']:08x}"
-                  }
-                  return s in candidates
-              return False
-
-          def walk(value,path="$",ancestors=None):
-              ancestors=ancestors or []
-              if isinstance(value,dict):
-                  for k,v in value.items():
-                      new_anc=ancestors+[value]
-                      if not isinstance(v,(dict,list)):
-                          for code,spec in wanted.items():
-                              if scalar_matches(v,spec) or (isinstance(v,str) and v.casefold()==code.casefold()):
-                                  # capture the smallest containing named entry-like dict plus path
-                                  parent=value
-                                  results[code].append({"path":f"{path}.{k}","value":v,"container":parent})
-                      walk(v,f"{path}.{k}",new_anc)
-              elif isinstance(value,list):
-                  for i,v in enumerate(value):
-                      walk(v,f"{path}[{i}]",ancestors+[value])
-
-          if decoded is not None:
-              walk(decoded)
-          for code,hits in results.items():
-              if hits:
-                  print("MATCH",code,json.dumps(hits[:8],ensure_ascii=False))
-          print("SUMMARY matched_codes=",sum(bool(v) for v in results.values()),"decoded=",decoded is not None)
-          Path("data/chara_model_change_alias_probe.json").write_text(json.dumps({
-              "version":1,
-              "source":path,
-              "attempts":attempts,
-              "wanted":wanted,
-              "results":results
-          },ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
-          PY
-      - name: Upload probe
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: chara-model-change-alias-probe
-          if-no-files-found: error
-          path: data/chara_model_change_alias_probe.json
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq msitools unzip
+          curl -L --fail --retry 3 -o /tmp/niers.msi \
+            https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers_0.5.9_x64_en-US.msi
+          mkdir -p /tmp/niers-msi
+          msiextract -C /tmp/niers-msi /tmp/niers.msi >/dev/null
+          echo "=== RELEVANT MSI FILES ==="
+          find /tmp/niers-msi -type f | sed 's#^/tmp/niers-msi/##' | grep -Ei '(body|model|chara|manifest|mirror|sqlite|lookup|catalog)' | sort | head -500 || true
+          echo "=== ALL JSON/NDJSON/DB/GZ ==="
+          find /tmp/niers-msi -type f | sed 's#^/tmp/niers-msi/##' | grep -Ei '\.(json|ndjson|sqlite|db|gz)$' | sort | head -1000 || true
+          echo "=== PLUGIN ZIP ==="
+          curl -L --fail --retry 3 -o /tmp/niers.zip \
+            https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers-1.1.0.zip
+          unzip -l /tmp/niers.zip | grep -Ei '(body|model|chara|manifest|mirror|sqlite|lookup|catalog|json|ndjson)' | head -1000 || true
