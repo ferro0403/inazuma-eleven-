@@ -89,6 +89,55 @@ jobs:
           for c in codes:
               print(c, grouped.get(c, []))
           PY
+      - name: Inspect exact raw relations for unresolved samples
+        run: |
+          python - <<'PY'
+          import json, sqlite3
+          con = sqlite3.connect("file:/tmp/mirror.sqlite?mode=ro", uri=True)
+          samples = ["c07110020", "c07050010", "c03031470", "c01000010", "c01000100", "c01000030", "c01000050"]
+          print("=== SAMPLE RAW ROWS ===")
+          for code in samples:
+              rows = con.execute(
+                  "SELECT internal_code, chara_id, model_id, base_slug, slug, is_primary, data "
+                  "FROM inagle_characters WHERE internal_code=? ORDER BY is_primary DESC NULLS LAST, rowid",
+                  (code,),
+              ).fetchall()
+              for row in rows:
+                  raw = row[6]
+                  try:
+                      raw = json.loads(raw) if raw else None
+                  except Exception:
+                      pass
+                  print(json.dumps({
+                      "internalCode": row[0], "charaId": row[1], "modelId": row[2],
+                      "baseSlug": row[3], "slug": row[4], "isPrimary": row[5], "data": raw,
+                  }, ensure_ascii=False, sort_keys=True))
+
+          print("=== TECHNICAL TABLES/COLUMNS ===")
+          for (table,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'inagle_%' ORDER BY name"):
+              cols = [r[1] for r in con.execute(f'PRAGMA table_info("{table}")')]
+              relevant = [c for c in cols if any(k in c.lower() for k in ("chara", "model", "body", "base"))]
+              if relevant:
+                  print(table, relevant)
+
+          chara_ids = [
+              r[0] for code in samples[:3]
+              for r in con.execute("SELECT chara_id FROM inagle_characters WHERE internal_code=? AND chara_id IS NOT NULL", (code,))
+          ]
+          print("=== EXACT CHARA-ID CROSS REFERENCES ===")
+          for (table,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'inagle_%' ORDER BY name"):
+              info = con.execute(f'PRAGMA table_info("{table}")').fetchall()
+              cols = [r[1] for r in info]
+              candidates = [c for c in cols if "chara" in c.lower() and ("id" in c.lower() or "base" in c.lower())]
+              for col in candidates:
+                  for cid in chara_ids:
+                      try:
+                          rows = con.execute(f'SELECT * FROM "{table}" WHERE "{col}"=? LIMIT 5', (cid,)).fetchall()
+                      except sqlite3.Error:
+                          continue
+                      if rows:
+                          print("HIT", table, col, cid, "columns=", cols, "rows=", rows)
+          PY
       - name: Upload exact model ids
         if: always()
         uses: actions/upload-artifact@v4
