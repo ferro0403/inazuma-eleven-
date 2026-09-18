@@ -1,0 +1,50 @@
+name: Inspect Azalee model viewer
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+    paths:
+      - .github/workflows/probe-azalee-model-viewer.yml
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch dynamic viewer and exact Mark model URL
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p viewer
+          chunk='https://azalee.rosegriffon.fr/_next/static/chunks/197itqscipn0f.js'
+          curl -L -sS -A 'Mozilla/5.0' "$chunk" -o viewer/model-viewer.js
+          echo "viewer_bytes=$(wc -c < viewer/model-viewer.js)" | tee viewer/report.txt
+          python - <<'PY' | tee -a viewer/report.txt
+          import re, pathlib
+          s=pathlib.Path('viewer/model-viewer.js').read_text('utf-8', errors='ignore')
+          for pat in [r'https?://[^"\'\` ]+', r'/storage/v1/object/public/[^"\'\` ]+', r'[^"\'\` ]+\.glb[^"\'\` ]*', r'[^"\'\` ]+model[^"\'\` ]*', r'fetch\([^)]{0,300}\)']:
+              print('\nPATTERN', pat)
+              vals=[]
+              for m in re.finditer(pat,s,re.I):
+                  v=m.group(0)
+                  if v not in vals: vals.append(v)
+              for v in vals[:100]: print(v)
+          for needle in ['glbUrl','GLTFLoader','useGLTF','fetch(','model-full','storage/v1','onError','iframe','three']:
+              for m in re.finditer(re.escape(needle),s,re.I):
+                  print(f'\nCONTEXT {needle} @{m.start()}\n{s[max(0,m.start()-1200):m.start()+3500]}')
+                  break
+          PY
+          url='https://cdn.rosegriffon.fr/model-full/c01000010.glb?v=5'
+          code="$(curl -L -sS -A 'Mozilla/5.0' -o viewer/c01000010.bin -D viewer/model-headers.txt -w '%{http_code}' --connect-timeout 15 --max-time 120 "$url" || true)"
+          bytes="$(wc -c < viewer/c01000010.bin 2>/dev/null || echo 0)"
+          headhex="$(xxd -p -l 16 viewer/c01000010.bin 2>/dev/null | tr -d '\n' || true)"
+          echo "exact_mark_url=$url status=$code bytes=$bytes head=$headhex" | tee -a viewer/report.txt
+          cat viewer/report.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: azalee-model-viewer-inspect
+          path: viewer/
+          if-no-files-found: error
