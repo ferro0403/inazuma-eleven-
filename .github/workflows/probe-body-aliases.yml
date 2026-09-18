@@ -61,7 +61,7 @@ jobs:
           for t,codes in sorted(by_type.items()):
               random.shuffle(codes)
               # More examples for common classes; retain every rare class.
-              selected += [(c,t) for c in codes[:min(90,len(codes))]]
+              selected += [(c,t) for c in codes[:min(45,len(codes))]]
 
           cache=Path("/tmp/zukan-renders"); cache.mkdir(parents=True,exist_ok=True)
           sess=requests.Session()
@@ -117,14 +117,16 @@ jobs:
               )
               return f
 
+          from concurrent.futures import ThreadPoolExecutor
+          with ThreadPoolExecutor(max_workers=24) as pool:
+              raws=list(pool.map(lambda ct: fetch(ct[0]), selected))
           X=[]; y=[]; codes_ok=[]
-          for i,(code,t) in enumerate(selected,1):
-              raw=fetch(code)
+          for (code,t),raw in zip(selected,raws):
               if raw is None: continue
               f=features(raw)
               if f is not None:
                   X.append(f); y.append(t); codes_ok.append(code)
-              if i%150==0: print("DOWNLOADED",i,"usable",len(X),"failed",len(failed))
+          print("DOWNLOADED",len(selected),"usable",len(X),"failed",len(failed))
 
           X=np.asarray(X); y=np.asarray(y)
           counts=Counter(y.tolist())
