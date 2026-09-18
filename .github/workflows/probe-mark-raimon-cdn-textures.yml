@@ -1,0 +1,50 @@
+name: Probe Mark and Raimon CDN textures
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+    paths:
+      - .github/workflows/probe-mark-raimon-cdn-textures.yml
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe documented CDN PNG routes
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p probe
+          urls=(
+            "https://cdn.rosegriffon.fr/dx11/chr/_face/01_ie1/c01000010/c01000010.png"
+            "https://cdn.rosegriffon.fr/dx11/chr/_uniform/u000101/u000101_10.png"
+            "https://cdn.rosegriffon.fr/dx11/chr/_uniform/u000101/u010101_10.png"
+          )
+          : > probe/report.txt
+          for url in "${urls[@]}"; do
+            name="$(basename "$url")"
+            out="probe/$name"
+            echo "=== $url ===" | tee -a probe/report.txt
+            code="$(curl -L -sS -o "$out" -w '%{http_code}' --connect-timeout 15 --max-time 60 "$url" || true)"
+            echo "status=$code" | tee -a probe/report.txt
+            if [ -f "$out" ]; then
+              bytes="$(wc -c < "$out")"
+              sha="$(sha256sum "$out" | awk '{print $1}')"
+              headhex="$(xxd -p -l 16 "$out" | tr -d '\n')"
+              echo "bytes=$bytes sha256=$sha head=$headhex" | tee -a probe/report.txt
+              if [ "$headhex" != "89504e470d0a1a0a"* ]; then
+                mv "$out" "$out.response"
+              fi
+            fi
+          done
+          cat probe/report.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mark-raimon-cdn-textures
+          path: probe/
+          if-no-files-found: error
