@@ -37,7 +37,7 @@ jobs:
           if not candidates:
               raise SystemExit('No public anon token found in browser bundle')
           _, token, meta=max(candidates)
-          endpoint='https://azalee.rosegriffon.fr/storage/v1/object/list/assets'
+          project_ref=str(meta.get('ref') or '').strip()\n          if not project_ref:\n              raise SystemExit('Anon token has no Supabase project ref')\n          endpoint=f'https://{project_ref}.supabase.co/storage/v1/object/list/assets'\n          print('DIRECT_SUPABASE', endpoint)
           headers={'apikey':token,'Authorization':'Bearer '+token,'Content-Type':'application/json'}
           queue=['']
           seen=set()
