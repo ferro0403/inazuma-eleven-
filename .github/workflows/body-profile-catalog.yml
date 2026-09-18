@@ -1,4 +1,4 @@
-name: Probe NIE model reports for exact body aliases
+name: Probe exact chara model-change aliases
 
 on:
   push:
@@ -10,84 +10,96 @@ permissions:
   contents: read
 
 jobs:
-  reports:
+  model-change:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Read exact assembly reports
+      - name: Decode real chara_model_change CFG and match unresolved character CRCs
         run: |
           set -euo pipefail
           python - <<'PY'
-          import ast, json, re, urllib.error, urllib.request
+          import ast, json, re, urllib.parse, urllib.request, zlib
           from pathlib import Path
 
           old_url = "https://raw.githubusercontent.com/ferro0403/inazuma-eleven-/85d116e6dfcaa2995b596e212a2ce3b7a1f1b11f/.github/workflows/body-profile-catalog.yml"
-          with urllib.request.urlopen(old_url, timeout=60) as r:
-              old = r.read().decode("utf-8")
-          m = re.search(r"^\s*codes\s*=\s*(\[[^\n]+\])", old, re.M)
-          codes = ast.literal_eval(m.group(1))
-          assert len(codes) == 87
-
-          bases = [
-              "https://cdn.aphrody.com/model-report/{code}.json",
-              "https://cdn.rosegriffon.fr/model-report/{code}.json",
-          ]
-          results={}
+          with urllib.request.urlopen(old_url, timeout=30) as r:
+              old=r.read().decode()
+          m=re.search(r"^\s*codes\s*=\s*(\[[^\n]+\])",old,re.M)
+          codes=ast.literal_eval(m.group(1))
+          assert len(codes)==87
+          wanted={}
           for code in codes:
-              attempts=[]
-              report=None
-              for tmpl in bases:
-                  url=tmpl.format(code=code)
-                  try:
-                      req=urllib.request.Request(url,headers={"User-Agent":"inazuma-body-profile-audit/1.0"})
-                      with urllib.request.urlopen(req,timeout=45) as r:
-                          raw=r.read()
-                          status=r.status
-                      obj=json.loads(raw)
-                      attempts.append({"url":url,"status":status})
-                      report=obj
-                      break
-                  except Exception as exc:
-                      attempts.append({"url":url,"error":repr(exc)})
-              item={"attempts":attempts,"report":report}
-              results[code]=item
-              if isinstance(report,dict):
-                  cat=report.get("catalogues") or {}
-                  print("REPORT",code,
-                        "body_type_idx=",report.get("body_type_idx"),
-                        "chara_model_row=",cat.get("chara_model_row"),
-                        "body_row=",cat.get("body_row"),
-                        "body_objbin=",cat.get("body_objbin"),
-                        "notes=",json.dumps(report.get("notes"),ensure_ascii=False))
-              else:
-                  print("NO_REPORT",code,json.dumps(attempts))
-          usable_nonzero=[
-              code for code,item in results.items()
-              if isinstance(item["report"],dict)
-              and isinstance(item["report"].get("body_type_idx"),int)
-              and item["report"]["body_type_idx"] != 0
-          ]
-          direct=[
-              code for code,item in results.items()
-              if isinstance(item["report"],dict)
-              and (item["report"].get("catalogues") or {}).get("body_row") is not None
-          ]
-          print("SUMMARY reports=",sum(isinstance(v["report"],dict) for v in results.values()),
-                "direct_body_rows=",len(direct),
-                "safe_nonzero_manifest=",len(usable_nonzero))
-          Path("data/nie_model_reports_body_aliases.json").write_text(
-              json.dumps({
-                  "version":1,
-                  "sources":bases,
-                  "safeRule":"Accept body_type_idx when body_row is present, or nonzero value when body_row is absent because server fallback is exactly 0.",
-                  "results":results,
-              },ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+              crc=zlib.crc32(code.encode()) & 0xffffffff
+              signed=crc if crc < 0x80000000 else crc-0x100000000
+              wanted[code]={"u32":crc,"signed":signed,"hex":f"0x{crc:08X}"}
+
+          path="data/common/gamedata/character/chara_model_change_1.00.92.00.cfg.bin"
+          hosts=["https://api.aphrody.com","https://nie.aphrody.com"]
+          decoded=None
+          attempts=[]
+          for host in hosts:
+              url=f"{host}/api/v1/formats/decode/{path}"
+              try:
+                  req=urllib.request.Request(url,headers={"Accept":"application/json","User-Agent":"inazuma-body-profile-audit/1.0"})
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      raw=r.read()
+                      attempts.append({"url":url,"status":r.status,"bytes":len(raw),"content_type":r.headers.get("content-type")})
+                  decoded=json.loads(raw)
+                  print("DECODE_OK",url,"bytes=",len(raw))
+                  break
+              except Exception as exc:
+                  attempts.append({"url":url,"error":repr(exc)})
+                  print("DECODE_FAIL",url,repr(exc))
+
+          results={c:[] for c in codes}
+          def scalar_matches(value, spec):
+              if isinstance(value,bool) or value is None: return False
+              if isinstance(value,int):
+                  return value in (spec["u32"],spec["signed"])
+              if isinstance(value,str):
+                  s=value.strip().lower()
+                  candidates={
+                      str(spec["u32"]).lower(),str(spec["signed"]).lower(),
+                      spec["hex"].lower(),f"{spec['u32']:08x}"
+                  }
+                  return s in candidates
+              return False
+
+          def walk(value,path="$",ancestors=None):
+              ancestors=ancestors or []
+              if isinstance(value,dict):
+                  for k,v in value.items():
+                      new_anc=ancestors+[value]
+                      if not isinstance(v,(dict,list)):
+                          for code,spec in wanted.items():
+                              if scalar_matches(v,spec) or (isinstance(v,str) and v.casefold()==code.casefold()):
+                                  # capture the smallest containing named entry-like dict plus path
+                                  parent=value
+                                  results[code].append({"path":f"{path}.{k}","value":v,"container":parent})
+                      walk(v,f"{path}.{k}",new_anc)
+              elif isinstance(value,list):
+                  for i,v in enumerate(value):
+                      walk(v,f"{path}[{i}]",ancestors+[value])
+
+          if decoded is not None:
+              walk(decoded)
+          for code,hits in results.items():
+              if hits:
+                  print("MATCH",code,json.dumps(hits[:8],ensure_ascii=False))
+          print("SUMMARY matched_codes=",sum(bool(v) for v in results.values()),"decoded=",decoded is not None)
+          Path("data/chara_model_change_alias_probe.json").write_text(json.dumps({
+              "version":1,
+              "source":path,
+              "attempts":attempts,
+              "wanted":wanted,
+              "results":results
+          },ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
           PY
-      - name: Upload reports
+      - name: Upload probe
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nie-model-reports-body-aliases
+          name: chara-model-change-alias-probe
           if-no-files-found: error
-          path: data/nie_model_reports_body_aliases.json
+          path: data/chara_model_change_alias_probe.json
