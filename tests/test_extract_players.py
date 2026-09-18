@@ -69,6 +69,72 @@ class ExtractPlayersTests(unittest.TestCase):
         self.assertEqual(players[0]["imageUrl"], "https://zukan.inazuma.jp/portraits/1.png")
         self.assertEqual(players[1]["imageUrl"], "https://cdn.example/36.webp")
 
+
+    def test_decodes_real_zukan_character_queries(self):
+        self.assertEqual(
+            extract_players.decode_zukan_query(
+                "hN2cl56NnpyLmo2glpvdxaTdnM_Oz8_Pzs_P3aKC"
+            ),
+            "c01000100",
+        )
+        self.assertEqual(
+            extract_players.decode_zukan_query(
+                "hN2ZlpOLmo2gnJeejZ6glpugjIuN3cWk3ZzPzs_Pz8_Mz92igg"
+            ),
+            "c01000030",
+        )
+        self.assertEqual(extract_players.decode_zukan_query("not-a-zukan-query"), "")
+
+    def test_extracts_internal_code_from_player_name_link(self):
+        markup = self.markup.replace(
+            "<a>Mark Evans</a>",
+            '<a href="/en/chara_param/?q=hN2ZlpOLmo2gnJeejZ6glpugjIuN3cWk3ZzPzs_Pz87Pz92igg">Mark Evans</a>',
+        )
+        players = extract_players.extract_records(markup, extract_players.SOURCE_URL)
+        self.assertEqual(players[0]["internalCode"], "c01000100")
+
+    def test_body_profiles_are_resolved_from_authoritative_lookup(self):
+        lookup = {
+            "models": {
+                "axel": {
+                    "model_path": "_face/01_IE1/c01000100/c01000100.g4md",
+                    "body_profile": 0,
+                    "body_mesh_profile": 0,
+                    "g4sk_stem": "c000101",
+                },
+                "jack": {
+                    "model_path": "_face/01_IE1/c01000030/c01000030.g4md",
+                    "body_profile": 6,
+                    "body_mesh_profile": 6,
+                    "g4sk_stem": "c000401",
+                },
+                "tod": {
+                    "model_path": "_face/01_IE1/c01000050/c01000050.g4md",
+                    "body_profile": 2,
+                    "body_mesh_profile": 2,
+                    "g4sk_stem": "c000201",
+                },
+            }
+        }
+        index = extract_players.build_body_profile_index(lookup)
+        players = [
+            {"id": 2, "name": "Axel Blaze", "internalCode": "c01000100"},
+            {"id": 5, "name": "Jack Wallside", "internalCode": "c01000030"},
+            {"id": 8, "name": "Tod Ironside", "internalCode": "c01000050"},
+        ]
+
+        resolved, unresolved = extract_players.enrich_body_profiles(players, index)
+
+        self.assertEqual(resolved, 3)
+        self.assertEqual(unresolved, [])
+        self.assertEqual(players[0]["bodyProfile"], 0)
+        self.assertEqual(players[0]["bodyModel"], "base_normal_00")
+        self.assertEqual(players[1]["bodyProfile"], 6)
+        self.assertEqual(players[1]["bodyModel"], "base_bigman_01")
+        self.assertEqual(players[2]["bodyProfile"], 2)
+        self.assertEqual(players[2]["bodyModel"], "base_normal_02")
+        self.assertEqual(players[2]["bodySkeleton"], "c000201")
+
     def test_writes_browser_ready_javascript(self):
         players = extract_players.extract_records(self.markup, extract_players.SOURCE_URL)
         with tempfile.TemporaryDirectory() as directory:
