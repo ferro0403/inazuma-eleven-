@@ -7,12 +7,13 @@ This pipeline keeps Victory Road body metadata separate from the original Zukan 
 The mapping is intentionally mechanical:
 
 1. data/players.js provides the public Zukan No. used as playerId.
-2. The same Zukan result row exposes a chara_param and/or chara_model_view link.
-3. Its q parameter is base64url data whose bytes are complemented with XOR/NOT 0xFF.
-4. The decoded JSON contains either filter_chara_id_str or character_id.
-5. That value is the Victory Road internalCode, for example c01000010.
-6. data/victory_road_body_profiles.json maps the internalCode to the real Victory Road body.
-7. bodyProfile is exported as bodyTypeIdx.
+2. The script crawls the full unfiltered Zukan list because players.js is cumulative across extraction runs.
+3. The same Zukan result row exposes a chara_param and/or chara_model_view link.
+4. Its q parameter is base64url data whose bytes are complemented with XOR/NOT 0xFF.
+5. The decoded JSON contains either filter_chara_id_str or character_id.
+6. That value is the Victory Road internalCode, for example c01000010.
+7. data/victory_road_body_profiles.json maps the internalCode to the real Victory Road body.
+8. bodyProfile is exported as bodyTypeIdx.
 
 No name matching, gender matching, image measurement, three-size classification or manual player assignment is used.
 
@@ -29,7 +30,7 @@ No name matching, gender matching, image measurement, three-size classification 
   - source game data is chara_model_1.03.49.00.cfg.bin.xml.
 
 - scripts/build_player_body_profiles.py
-  - crawls the exact Zukan source URL embedded in players.js;
+  - crawls the full unfiltered Zukan list and uses the official public No. as the only player join key;
   - pairs public No. and internal code only when both occur in the same result row;
   - joins the code to the Victory Road catalog;
   - writes the final player mapping without modifying players.js.
@@ -102,7 +103,7 @@ Install browser dependencies if needed:
     pip install -r requirements.txt
     playwright install chromium
 
-First complete crawl:
+First complete crawl of the full Zukan:
 
     py scripts/build_player_body_profiles.py --headed
 
