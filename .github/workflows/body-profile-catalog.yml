@@ -1,0 +1,52 @@
+name: Build Victory Road body profiles
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+
+jobs:
+  build-body-profiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Run body-profile unit tests
+        run: |
+          python -m unittest -v tests/test_build_body_profile_catalog.py
+          python -m unittest -v tests/test_build_player_body_profiles.py
+      - name: Crawl Zukan and build exact mapping
+        id: build
+        continue-on-error: true
+        run: xvfb-run -a python scripts/build_player_body_profiles.py --headed --timeout 90 --delay 0.15
+      - name: Show report summary
+        if: always()
+        run: |
+          if [ -f data/player_body_profiles_report.json ]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path("data/player_body_profiles_report.json").read_text())
+          print(json.dumps(p.get("totals", {}), indent=2))
+          PY
+          else
+            echo "No report generated"
+          fi
+      - name: Upload generated mapping
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: victory-road-player-body-profiles
+          if-no-files-found: warn
+          path: |
+            data/player_body_profiles.json
+            data/player_body_profiles_report.json
+            data/zukan_internal_codes.json
