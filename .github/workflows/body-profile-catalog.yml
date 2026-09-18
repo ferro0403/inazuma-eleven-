@@ -1,6 +1,8 @@
 name: Build Victory Road body profiles
 
 on:
+  push:
+    branches: [feature/player-body-profiles-exact]
   workflow_dispatch:
 
 jobs:
@@ -25,6 +27,77 @@ jobs:
         id: build
         continue-on-error: true
         run: xvfb-run -a python scripts/build_player_body_profiles.py --headed --timeout 90 --delay 0.15
+      - name: Resolve missing profiles from live model reports
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+          from pathlib import Path
+
+          mapping_path = Path("data/player_body_profiles.json")
+          report_path = Path("data/player_body_profiles_report.json")
+          if not mapping_path.exists() or not report_path.exists():
+              raise SystemExit("mapping/report missing")
+
+          mapping = json.loads(mapping_path.read_text())
+          report = json.loads(report_path.read_text())
+          unresolved = report.get("unresolved", [])
+          live = {}
+          failures = []
+          body_names = {
+              0:"base_normal_00",1:"base_normal_01",2:"base_normal_02",3:"base_normal_03",
+              4:"base_tall_00",5:"base_bigman_00",6:"base_bigman_01",7:"base_tall_01",
+              8:"base_tall_02",9:"base_tall_03",10:"base_tall_04",11:"base_tall_05",
+              12:"base_big_00",13:"base_bigwoman_00",14:"base_small_00",15:"base_small_01",
+              16:"base_elderlyman_00",17:"base_elderlywoman_00",
+          }
+
+          for item in unresolved:
+              code = item["internalCode"]
+              url = f"https://cdn.rosegriffon.fr/model-report/{code}.json"
+              try:
+                  req = urllib.request.Request(url, headers={"User-Agent":"inazuma-body-profile-catalog/1.0"})
+                  with urllib.request.urlopen(req, timeout=90) as r:
+                      data = json.load(r)
+                  idx = data.get("body_type_idx")
+                  base = data.get("body_base")
+                  if not isinstance(idx, int) or idx not in body_names or base != body_names[idx]:
+                      raise RuntimeError(f"invalid report body: idx={idx!r} base={base!r}")
+                  live[code] = {
+                      "bodyTypeIdx": idx,
+                      "bodyModel": base,
+                      "catalogues": data.get("catalogues"),
+                      "notes": data.get("notes"),
+                  }
+                  row = mapping[str(item["playerId"])]
+                  row["bodyTypeIdx"] = idx
+                  row["bodyModel"] = base
+                  row["bodyKind"] = "human"
+                  row["supportsStandardUniform"] = True
+                  row["source"] = "nie_model_serve_body_manifest"
+              except Exception as exc:
+                  failures.append({**item, "error": str(exc)})
+                  print(f"FAIL {code}: {exc}")
+              else:
+                  print(f"OK {code}: type={idx} {base}")
+
+          remaining = []
+          for item in unresolved:
+              row = mapping[str(item["playerId"])]
+              if row.get("bodyTypeIdx") is None:
+                  remaining.append(item)
+
+          report["unresolved"] = remaining
+          report["totals"]["bodyTypesResolved"] = report["totals"]["players"] - len(remaining)
+          report["totals"]["unresolved"] = len(remaining)
+          report["liveModelReportResolved"] = len(live)
+          report["liveModelReportFailures"] = failures
+          mapping_path.write_text(json.dumps(mapping, indent=2, ensure_ascii=False)+"\\n")
+          report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False)+"\\n")
+          Path("data/live_body_type_reports.json").write_text(json.dumps(live, indent=2, ensure_ascii=False)+"\\n")
+          print(f"LIVE RESOLVED {len(live)}/{len(unresolved)}; remaining={len(remaining)}")
+          PY
       - name: Show report summary
         if: always()
         run: |
@@ -48,3 +121,4 @@ jobs:
             data/player_body_profiles.json
             data/player_body_profiles_report.json
             data/zukan_internal_codes.json
+            data/live_body_type_reports.json
