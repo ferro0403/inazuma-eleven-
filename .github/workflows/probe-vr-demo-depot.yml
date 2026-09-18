@@ -1,0 +1,51 @@
+name: Probe Victory Road demo depot
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+    paths:
+      - .github/workflows/probe-vr-demo-depot.yml
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build DepotDownloader
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/SteamRE/DepotDownloader.git /tmp/DepotDownloader
+          dotnet publish /tmp/DepotDownloader/DepotDownloader/DepotDownloader.csproj -c Release -o /tmp/dd
+
+      - name: Test anonymous demo depot access
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p depot-probe/out
+          printf '%s\n' 'steam_action_manifest.vdf' > depot-probe/files.txt
+          set +e
+          dotnet /tmp/dd/DepotDownloader.dll \
+            -app 2854160 \
+            -depot 2854161 \
+            -manifest 5674333585091219960 \
+            -filelist depot-probe/files.txt \
+            -dir depot-probe/out \
+            > depot-probe/depotdownloader.log 2>&1
+          code=$?
+          set -e
+          echo "exit_code=$code" | tee depot-probe/result.txt
+          find depot-probe/out -type f -printf '%p %s bytes\n' | tee -a depot-probe/result.txt || true
+          tail -n 100 depot-probe/depotdownloader.log | tee -a depot-probe/result.txt
+          # This is a probe: upload diagnostics whether access works or is denied.
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: victory-road-demo-depot-probe
+          path: depot-probe/
+          if-no-files-found: error
