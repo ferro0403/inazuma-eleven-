@@ -17,85 +17,65 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
       - name: Download exact mapping artifact
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p /tmp/body-map
           gh run download 35357488462 -n victory-road-player-body-profiles -D /tmp/body-map
-
-      - name: Test shared visual asset as exact alias key
+      - name: Audit exact-name character aliases
         run: |
           python - <<'PY'
-          import json, re
+          import json, re, unicodedata
           from collections import defaultdict, Counter
           from pathlib import Path
 
           text=Path("data/players.js").read_text(encoding="utf-8")
-          m=re.search(r"globalThis\.INAZUMA_PLAYERS\s*=\s*(\[[\s\S]*\]);\s*$",text)
-          players=json.loads(m.group(1))
+          players=json.loads(re.search(r"globalThis\.INAZUMA_PLAYERS\s*=\s*(\[[\s\S]*\]);\s*$",text).group(1))
           mapping=json.loads(Path("/tmp/body-map/player_body_profiles.json").read_text())
           report=json.loads(Path("/tmp/body-map/player_body_profiles_report.json").read_text())
-
           by_id={int(p["id"]):p for p in players}
+
+          def key(name):
+              return unicodedata.normalize("NFKC", str(name or "")).strip().casefold()
+
           groups=defaultdict(list)
           for p in players:
-              url=(p.get("imageUrl") or p.get("portraitUrl") or "").strip()
-              if url:
-                  # Exact URL identity only: no name/gender/height inference.
-                  groups[url].append(int(p["id"]))
+              groups[key(p.get("name"))].append(int(p["id"]))
 
           contradictions=[]
-          resolved_missing=[]
-          unresolved=[]
-          for miss in report["unresolved"]:
-              pid=int(miss["playerId"])
-              p=by_id[pid]
-              url=(p.get("imageUrl") or p.get("portraitUrl") or "").strip()
-              peers=groups.get(url,[])
-              known=[]
-              for qid in peers:
-                  rec=mapping.get(str(qid),{})
-                  t=rec.get("bodyTypeIdx")
-                  if t is not None:
-                      known.append((qid,t,rec.get("internalCode"),by_id[qid].get("name")))
-              types=sorted({x[1] for x in known})
-              if len(types)==1:
-                  resolved_missing.append({
-                    "playerId":pid,"name":p.get("name"),"internalCode":miss["internalCode"],
-                    "bodyTypeIdx":types[0],"peerCount":len(known),"peers":known[:8],
-                    "asset":url,
-                  })
-              else:
-                  unresolved.append({
-                    "playerId":pid,"name":p.get("name"),"internalCode":miss["internalCode"],
-                    "knownPeerTypes":types,"knownPeers":known[:8],"peerIds":peers,
-                    "asset":url,
-                  })
-
-          # Audit the proposed key across ALL groups: any one shared asset mapping to >1 body type invalidates it.
-          for url,ids in groups.items():
+          for name,ids in groups.items():
               typed=[]
               for pid in ids:
                   rec=mapping.get(str(pid),{})
-                  t=rec.get("bodyTypeIdx")
-                  if t is not None:
-                      typed.append((pid,t,rec.get("internalCode"),by_id[pid].get("name")))
+                  if rec.get("bodyTypeIdx") is not None:
+                      typed.append((pid,rec["bodyTypeIdx"],rec.get("internalCode"),by_id[pid].get("name"),by_id[pid].get("game")))
               types=sorted({x[1] for x in typed})
               if len(types)>1:
-                  contradictions.append({"asset":url,"types":types,"rows":typed})
+                  contradictions.append({"name":name,"types":types,"rows":typed})
 
-          print("TOTAL_GROUPS",len(groups))
-          print("CONTRADICTORY_GROUPS",len(contradictions))
-          print("MISSING_RESOLVED_BY_EXACT_ASSET",len(resolved_missing))
+          resolved=[]
+          unresolved=[]
+          for miss in report["unresolved"]:
+              pid=int(miss["playerId"]); p=by_id[pid]
+              peers=[]
+              for qid in groups[key(p.get("name"))]:
+                  rec=mapping.get(str(qid),{})
+                  if rec.get("bodyTypeIdx") is not None:
+                      peers.append((qid,rec["bodyTypeIdx"],rec.get("internalCode"),by_id[qid].get("game")))
+              types=sorted({x[1] for x in peers})
+              row={"playerId":pid,"name":p.get("name"),"internalCode":miss["internalCode"],"game":p.get("game"),"types":types,"peers":peers}
+              (resolved if len(types)==1 else unresolved).append(row)
+
+          print("NAME_GROUPS",len(groups))
+          print("CONTRADICTORY_NAME_GROUPS",len(contradictions))
+          print("MISSING_WITH_UNANIMOUS_KNOWN_NAME_PROFILE",len(resolved))
           print("MISSING_STILL_UNRESOLVED",len(unresolved))
-          print("TYPE_COUNTS",dict(Counter(x["bodyTypeIdx"] for x in resolved_missing)))
+          print("TYPE_COUNTS",dict(Counter(r["types"][0] for r in resolved)))
           print("RESOLVED")
-          print(json.dumps(resolved_missing,ensure_ascii=False,indent=2))
+          print(json.dumps(resolved,ensure_ascii=False,indent=2))
           print("UNRESOLVED")
           print(json.dumps(unresolved,ensure_ascii=False,indent=2))
-          if contradictions:
-              print("CONTRADICTIONS")
-              print(json.dumps(contradictions[:20],ensure_ascii=False,indent=2))
+          print("CONTRADICTIONS_SAMPLE")
+          print(json.dumps(contradictions[:30],ensure_ascii=False,indent=2))
           PY
