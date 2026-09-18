@@ -12,50 +12,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Probe assembled GLBs and mirror rows
+      - name: Probe Azalee raw character payload
         shell: bash
         run: |
           set -u
-          mkdir -p /tmp/glbs
-          for code in c01000010 c07110020 c01000100 c07050010 c03031470 c08130010; do
-            echo "=== GLB $code ==="
-            url="https://nie.aphrody.com/model/perso/$code.glb"
-            status=$(curl -L --connect-timeout 10 --max-time 45 -sS -o "/tmp/glbs/$code.glb" -w "%{http_code}" "$url" || true)
-            bytes=$(wc -c < "/tmp/glbs/$code.glb" 2>/dev/null || echo 0)
-            echo "status=$status bytes=$bytes"
-
-            echo "=== API $code ==="
-            curl -L --connect-timeout 10 --max-time 30 -sS \
-              "https://nie.aphrody.com/api/v1/chara?q=$code&per_page=10" \
-              | head -c 4000 || true
-            echo
-          done
-
+          url="https://azalee.rosegriffon.fr/chara/mark-evans-0x3055CF22"
+          curl -L --connect-timeout 10 --max-time 45 -sS "$url" -o /tmp/mark.html || true
+          echo "html_bytes=$(wc -c < /tmp/mark.html 2>/dev/null || echo 0)"
           python - <<'PY'
-          import json, struct
           from pathlib import Path
-
-          for path in sorted(Path("/tmp/glbs").glob("*.glb")):
-              print(f"--- PARSE {path.stem} ---")
-              raw = path.read_bytes()
-              if len(raw) < 20 or raw[:4] != b"glTF":
-                  print("not-glb", raw[:200])
-                  continue
-              n, typ = struct.unpack_from("<II", raw, 12)
-              if typ != 0x4E4F534A:
-                  print("first chunk is not JSON", hex(typ))
-                  continue
-              doc = json.loads(raw[20:20+n].decode("utf-8").rstrip("\x00 \t\r\n"))
-              def names(key):
-                  return [
-                      item.get("name")
-                      for item in doc.get(key, [])
-                      if isinstance(item, dict) and item.get("name")
-                  ]
-              print("nodes", names("nodes"))
-              print("meshes", names("meshes"))
-              print("materials", names("materials"))
-              print("accessors", len(doc.get("accessors", [])),
-                    "meshes_count", len(doc.get("meshes", [])),
-                    "nodes_count", len(doc.get("nodes", [])))
+          import re
+          text=Path("/tmp/mark.html").read_text(errors="replace")
+          needles=["c01000010","c07110020","internal_code","model_id","modelId","body_id","bodyType","__next_f"]
+          for n in needles:
+              print("NEEDLE",n,"count",text.count(n))
+              for m in list(re.finditer(re.escape(n), text, re.I))[:8]:
+                  print(text[max(0,m.start()-350):m.end()+700].replace("\n"," ")[:1200])
           PY
+
+          for base in "https://azalee.rosegriffon.fr" "https://api.rosegriffon.fr" "https://api.aphrody.com"; do
+            for code in c01000010 c07110020 c07050010 c03031470 c08130010; do
+              echo "=== $base API $code ==="
+              curl -L --connect-timeout 10 --max-time 30 -sS -w "\nHTTP=%{http_code}\n" \
+                "$base/api/v1/chara?q=$code&per_page=10" | head -c 5000 || true
+              echo
+            done
+          done
