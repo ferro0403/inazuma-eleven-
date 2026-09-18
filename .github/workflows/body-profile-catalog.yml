@@ -1,4 +1,4 @@
-name: Probe exact CHARA_BASE model links
+name: Recover exact model links from preserved Inagle rows
 
 on:
   push:
@@ -10,78 +10,110 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  recover:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch public NIE chara_base from DNS and direct origin
+      - name: Inspect preserved full character JSON in NIE mirror
         run: |
           set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq msitools sqlite3
+          curl -L --fail --retry 3 -o /tmp/niers.msi \
+            https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers_0.5.9_x64_en-US.msi
+          mkdir -p /tmp/niers-msi
+          msiextract -C /tmp/niers-msi /tmp/niers.msi >/dev/null
+          gzip -dc /tmp/niers-msi/PFiles/niers/resources/db/mirror.sqlite.gz > /tmp/mirror.sqlite
+
           python - <<'PY'
-          import json, ssl, urllib.request, urllib.error
+          import json, sqlite3
           from pathlib import Path
 
-          codes = ["c07110020","c07050010","c03031470","c01000915"]
-          urls = [
-            "https://api.aphrody.com/api/v1/donnees/famille/chara_base",
-            "https://nie.aphrody.com/api/v1/donnees/famille/chara_base",
-            "https://api.aphrody.com/api/v1/formats/decode/data/common/gamedata/character/chara_base_1.03.98.00.cfg.bin",
-            "https://nie.aphrody.com/api/v1/formats/decode/data/common/gamedata/character/chara_base_1.03.98.00.cfg.bin",
-          ]
+          codes = ["c01000915","c02024210","c02024220","c02024230","c04017360","c04017410","c06037140","c04017470","c03030710","c03031450","c03031470","c11803100","c07020120","c11807250","c07040120","c07050060","c07050070","c07050080","c07050090","c07050100","c07050110","c07050120","c07050020","c07050030","c07050040","c07050010","c11807280","c07070030","c07070040","c07070050","c07070060","c07070070","c07070080","c07070090","c07070100","c07070020","c07070110","c11807230","c07080050","c07080060","c07080070","c07080080","c07080090","c07080100","c07090100","c07090090","c07090070","c07090110","c07090080","c07090050","c07090060","c07090040","c07090120","c07090030","c07090140","c07100040","c07100100","c07100110","c07100090","c07100080","c07100140","c07100120","c11807200","c07110020","c11807270","c11807260","c07120020","c07120010","c07120050","c07120080","c07120070","c07120030","c07120060","c07120090","c08130110","c08130100","c08130090","c08130080","c08130060","c08130050","c08130030","c08130020","c08130010","c08130140","c08130130","c08130120","c11807240"]
 
-          def fetch(url):
-              req=urllib.request.Request(url,headers={"User-Agent":"inazuma-body-profile-catalog/1.0","Accept":"application/json"})
-              try:
-                  with urllib.request.urlopen(req,timeout=45) as r:
-                      return r.status,r.read()
-              except urllib.error.HTTPError as e:
-                  return e.code,e.read()
-              except Exception as e:
-                  return None,repr(e).encode()
+          con=sqlite3.connect("/tmp/mirror.sqlite")
+          con.row_factory=sqlite3.Row
+          cols=[r[1] for r in con.execute("PRAGMA table_info(inagle_characters)")]
+          print("COLUMNS", cols)
 
-          results=[]
-          for url in urls:
-              status,raw=fetch(url)
-              print("HTTP",status,url,"bytes",len(raw),"head",raw[:160])
-              rec={"url":url,"status":status,"bytes":len(raw),"matches":{}}
-              if status==200:
-                  text=raw.decode("utf-8","replace")
-                  for code in codes:
-                      pos=text.lower().find(code)
-                      if pos>=0:
-                          rec["matches"][code]=text[max(0,pos-500):pos+1200]
-                          print("FOUND",code,url,"context",rec["matches"][code])
-              results.append(rec)
+          def interesting(obj, path="$"):
+              out=[]
+              if isinstance(obj, dict):
+                  for k,v in obj.items():
+                      p=f"{path}.{k}"
+                      kl=str(k).lower()
+                      if any(x in kl for x in ("raw", "model", "base", "chara")):
+                          out.append((p,v))
+                      out.extend(interesting(v,p))
+              elif isinstance(obj,list):
+                  for i,v in enumerate(obj):
+                      out.extend(interesting(v,f"{path}[{i}]"))
+              return out
 
-          # Direct public origin disclosed by upstream's own bootstrap docs.
-          import subprocess
-          direct_urls = [
-            "https://api.aphrody.com/api/v1/donnees/famille/chara_base",
-            "https://api.aphrody.com/api/v1/formats/decode/data/common/gamedata/character/chara_base_1.03.98.00.cfg.bin",
-          ]
-          for n,url in enumerate(direct_urls):
-              out=Path(f"/tmp/direct{n}.json")
-              cmd=["curl","-sS","-L","--max-time","60","--resolve","api.aphrody.com:443:51.77.147.152",
-                   "-A","inazuma-body-profile-catalog/1.0","-w","%{http_code}",url,"-o",str(out)]
-              p=subprocess.run(cmd,capture_output=True,text=True)
-              status=p.stdout[-3:] if p.returncode==0 else f"curl:{p.returncode}"
-              raw=out.read_bytes() if out.exists() else p.stderr.encode()
-              print("DIRECT",status,url,"bytes",len(raw),"head",raw[:160])
-              rec={"url":url+"#direct-origin","status":status,"bytes":len(raw),"matches":{}}
-              if status=="200":
-                  text=raw.decode("utf-8","replace")
-                  for code in codes:
-                      pos=text.lower().find(code)
-                      if pos>=0:
-                          rec["matches"][code]=text[max(0,pos-500):pos+1200]
-                          print("DIRECT_FOUND",code,"context",rec["matches"][code])
-              results.append(rec)
+          results={}
+          for code in codes:
+              rows=con.execute("SELECT * FROM inagle_characters WHERE internal_code=?", (code,)).fetchall()
+              recs=[]
+              for row in rows:
+                  d=dict(row)
+                  payload=d.get("data")
+                  parsed=None
+                  if isinstance(payload,str) and payload:
+                      try: parsed=json.loads(payload)
+                      except Exception as e: parsed={"_parseError":repr(e),"_head":payload[:500]}
+                  elif payload is not None:
+                      parsed=payload
 
-          Path("data/chara_base_origin_probe.json").write_text(json.dumps(results,ensure_ascii=False,indent=2)+"\n")
+                  raw_candidates=[]
+                  exact_var6=[]
+                  if isinstance(parsed,(dict,list)):
+                      for p,v in interesting(parsed):
+                          # keep compact values only
+                          if isinstance(v,(str,int,float,bool)) or v is None:
+                              raw_candidates.append({"path":p,"value":v})
+                          elif isinstance(v,list) and len(v) <= 64:
+                              raw_candidates.append({"path":p,"value":v})
+                              if "raw" in p.lower() and len(v)>6:
+                                  exact_var6.append({"path":p,"value":v[6],"length":len(v)})
+                          elif isinstance(v,dict) and len(v) <= 20:
+                              raw_candidates.append({"path":p,"value":v})
+                  recs.append({
+                      "id":d.get("id"),
+                      "internal_code":d.get("internal_code"),
+                      "chara_id":d.get("chara_id"),
+                      "model_id":d.get("model_id"),
+                      "data_type":type(parsed).__name__,
+                      "top_keys":sorted(parsed.keys()) if isinstance(parsed,dict) else None,
+                      "exactRawVar6":exact_var6,
+                      "interesting":raw_candidates[:250],
+                  })
+              results[code]=recs
+              print("CODE", code, "rows", len(recs))
+              if recs:
+                  print("ROW", code, json.dumps(recs,ensure_ascii=False,separators=(",",":"))[:12000])
+
+          solved=sum(any(r["exactRawVar6"] for r in rs) for rs in results.values())
+          print("RESULT requested",len(codes),"codes_with_rows",sum(bool(v) for v in results.values()),"codes_with_raw_var6",solved)
+          for code in ("c07110020","c07050010","c03031470","c01000915"):
+              print("EXAMPLE",code,json.dumps(results[code],ensure_ascii=False,separators=(",",":"))[:16000])
+
+          Path("data/inagle_preserved_model_links.json").write_text(
+              json.dumps({
+                  "version":1,
+                  "source":"NIE v0.5.9 packaged mirror.sqlite inagle_characters.data",
+                  "requested":len(codes),
+                  "codesWithRows":sum(bool(v) for v in results.values()),
+                  "codesWithRawVar6":solved,
+                  "records":results,
+              },ensure_ascii=False,indent=2)+"\n",
+              encoding="utf-8"
+          )
+          con.close()
           PY
-      - name: Upload probe
+
+      - name: Upload preserved model links
         uses: actions/upload-artifact@v4
         with:
-          name: chara-base-origin-probe
-          path: data/chara_base_origin_probe.json
+          name: inagle-preserved-model-links
+          path: data/inagle_preserved_model_links.json
