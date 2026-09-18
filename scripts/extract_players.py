@@ -225,7 +225,10 @@ def build_body_profile_index(payload: object) -> dict[str, dict[str, object]]:
             continue
         model_path = clean_text(str(model.get("model_path", "")))
         internal_code = Path(model_path).stem.casefold()
-        if not internal_code or internal_code == "0":
+        # Shared body/skeleton assets also use c-prefixed names (for example
+        # c000101) but are not character IDs. Zukan character IDs are c + 8
+        # digits, optionally followed by a variant suffix.
+        if not re.fullmatch(r"c\d{8}(?:_\d+)?", internal_code):
             continue
         try:
             body_profile = int(model["body_profile"])
