@@ -39,6 +39,8 @@ jobs:
           urls = [
               "https://cdn.rosegriffon.fr/health",
               "https://cdn.rosegriffon.fr/model-full/c01000010.glb",
+              "https://cdn.aphrody.com/health",
+              "https://cdn.aphrody.com/model-full/c01000010.glb",
               "https://aphrody.com/model-full/c01000010.glb",
               "https://azalee.rosegriffon.fr/assets/model-full/c01000010.glb",
           ]
