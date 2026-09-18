@@ -1,9 +1,7 @@
 name: Build Victory Road body profiles
 
 on:
-  push:
-    branches:
-      - feature/player-body-profiles-exact
+  workflow_dispatch:
 
 jobs:
   build-body-profiles:
