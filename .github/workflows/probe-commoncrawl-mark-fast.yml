@@ -1,0 +1,73 @@
+name: Probe Common Crawl Mark Fast
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+    paths:
+      - .github/workflows/probe-commoncrawl-mark-fast.yml
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Search recent Common Crawl indexes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p cc-fast
+          python - <<'PY'
+          import json, urllib.parse, urllib.request, pathlib, socket
+          socket.setdefaulttimeout(15)
+          ua={"User-Agent":"Mozilla/5.0"}
+          with urllib.request.urlopen(urllib.request.Request("https://index.commoncrawl.org/collinfo.json",headers=ua),timeout=15) as r:
+              cols=json.load(r)
+          indexes=[x["id"] for x in cols[:8]]
+          targets=[
+            "cdn.rosegriffon.fr/model-full/c01000010.glb",
+            "cdn.rosegriffon.fr/model-full/*",
+            "cdn.rosegriffon.fr/dx11/chr/_face/01_IE1/c01000010/*",
+            "cdn.rosegriffon.fr/dx11/chr/_uniform/u000101/*",
+          ]
+          out=[]
+          for target in targets:
+              t={"target":target,"results":[]}
+              for idx in indexes:
+                  u=f"https://index.commoncrawl.org/{idx}-index?"+urllib.parse.urlencode({
+                      "url":target,"output":"json","filter":"status:200","matchType":"prefix" if "*" not in target else "domain"
+                  })
+                  # For wildcard targets use the literal URL parameter; CC understands * itself.
+                  if "*" in target:
+                      u=f"https://index.commoncrawl.org/{idx}-index?"+urllib.parse.urlencode({
+                          "url":target,"output":"json","filter":"status:200"
+                      })
+                  try:
+                      req=urllib.request.Request(u,headers=ua)
+                      with urllib.request.urlopen(req,timeout=15) as r:
+                          txt=r.read().decode("utf8","replace")
+                      rows=[json.loads(x) for x in txt.splitlines() if x.strip()]
+                      if rows:
+                          t["results"].append({"index":idx,"rows":rows[:50]})
+                  except Exception as e:
+                      t.setdefault("errors",[]).append({"index":idx,"error":repr(e)})
+              out.append(t)
+          pathlib.Path("cc-fast/report.json").write_text(json.dumps({"indexes":indexes,"targets":out},indent=2))
+          lines=["indexes="+",".join(indexes)]
+          for t in out:
+              count=sum(len(x["rows"]) for x in t["results"])
+              lines.append(f"{t['target']} matches={count}")
+              for group in t["results"]:
+                  for row in group["rows"][:10]:
+                      lines.append("  "+group["index"]+" "+json.dumps({
+                          k:row.get(k) for k in ("url","timestamp","status","mime","digest","filename","offset","length")
+                      },ensure_ascii=False))
+          pathlib.Path("cc-fast/summary.txt").write_text("\n".join(lines)+"\n")
+          print(pathlib.Path("cc-fast/summary.txt").read_text())
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: commoncrawl-mark-fast
+          path: cc-fast/
