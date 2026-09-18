@@ -1,124 +1,94 @@
-name: Build Victory Road body profiles
+name: Probe live Victory Road body profiles
 
 on:
   push:
     branches: [feature/player-body-profiles-exact]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build-body-profiles:
+  probe-live-body-profiles:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
-      - name: Run body-profile unit tests
-        run: |
-          python -m unittest -v tests/test_build_body_profile_catalog.py
-          python -m unittest -v tests/test_build_player_body_profiles.py
-      - name: Crawl Zukan and build exact mapping
-        id: build
-        continue-on-error: true
-        run: xvfb-run -a python scripts/build_player_body_profiles.py --headed --timeout 90 --delay 0.15
-      - name: Resolve missing profiles from live model reports
-        if: always()
+      - name: Query current model reports
         run: |
           python - <<'PY'
           import json
+          import time
+          import urllib.error
           import urllib.request
           from pathlib import Path
 
-          mapping_path = Path("data/player_body_profiles.json")
-          report_path = Path("data/player_body_profiles_report.json")
-          if not mapping_path.exists() or not report_path.exists():
-              raise SystemExit("mapping/report missing")
-
-          mapping = json.loads(mapping_path.read_text())
-          report = json.loads(report_path.read_text())
-          unresolved = report.get("unresolved", [])
-          live = {}
-          failures = []
-          body_names = {
+          codes = ["c01000915","c02024210","c02024220","c02024230","c04017360","c04017410","c06037140","c04017470","c03030710","c03031450","c03031470","c11803100","c07020120","c11807250","c07040120","c07050060","c07050070","c07050080","c07050090","c07050100","c07050110","c07050120","c07050020","c07050030","c07050040","c07050010","c11807280","c07070030","c07070040","c07070050","c07070060","c07070070","c07070080","c07070090","c07070100","c07070020","c07070110","c11807230","c07080050","c07080060","c07080070","c07080080","c07080090","c07080100","c07090100","c07090090","c07090070","c07090110","c07090080","c07090050","c07090060","c07090040","c07090120","c07090030","c07090140","c07100040","c07100100","c07100110","c07100090","c07100080","c07100140","c07100120","c11807200","c07110020","c11807270","c11807260","c07120020","c07120010","c07120050","c07120080","c07120070","c07120030","c07120060","c07120090","c08130110","c08130100","c08130090","c08130080","c08130060","c08130050","c08130030","c08130020","c08130010","c08130140","c08130130","c08130120","c11807240"]
+          expected = {
               0:"base_normal_00",1:"base_normal_01",2:"base_normal_02",3:"base_normal_03",
               4:"base_tall_00",5:"base_bigman_00",6:"base_bigman_01",7:"base_tall_01",
               8:"base_tall_02",9:"base_tall_03",10:"base_tall_04",11:"base_tall_05",
               12:"base_big_00",13:"base_bigwoman_00",14:"base_small_00",15:"base_small_01",
               16:"base_elderlyman_00",17:"base_elderlywoman_00",
           }
+          hosts = ["https://cdn.aphrody.com", "https://nie.aphrody.com/assets"]
+          resolved = {}
+          failures = []
 
-          for item in unresolved:
-              code = item["internalCode"]
-              url = f"https://cdn.rosegriffon.fr/model-report/{code}.json"
-              try:
-                  req = urllib.request.Request(url, headers={"User-Agent":"inazuma-body-profile-catalog/1.0"})
-                  with urllib.request.urlopen(req, timeout=90) as r:
-                      data = json.load(r)
-                  idx = data.get("body_type_idx")
-                  base = data.get("body_base")
-                  if not isinstance(idx, int) or idx not in body_names or base != body_names[idx]:
-                      raise RuntimeError(f"invalid report body: idx={idx!r} base={base!r}")
-                  live[code] = {
-                      "bodyTypeIdx": idx,
-                      "bodyModel": base,
-                      "catalogues": data.get("catalogues"),
-                      "notes": data.get("notes"),
-                  }
-                  row = mapping[str(item["playerId"])]
-                  row["bodyTypeIdx"] = idx
-                  row["bodyModel"] = base
-                  row["bodyKind"] = "human"
-                  row["supportsStandardUniform"] = True
-                  row["source"] = "nie_model_serve_body_manifest"
-              except Exception as exc:
-                  failures.append({**item, "error": str(exc)})
-                  print(f"FAIL {code}: {exc}")
-              else:
-                  print(f"OK {code}: type={idx} {base}")
+          for code in codes:
+              last_error = None
+              for host in hosts:
+                  url = f"{host}/model-report/{code}.json"
+                  try:
+                      req = urllib.request.Request(url, headers={"User-Agent":"inazuma-body-profile-catalog/1.0"})
+                      with urllib.request.urlopen(req, timeout=60) as response:
+                          data = json.load(response)
+                      idx = data.get("body_type_idx")
+                      base = data.get("body_base")
+                      if not isinstance(idx, int) or idx not in expected:
+                          raise RuntimeError(f"invalid body_type_idx {idx!r}")
+                      if base != expected[idx]:
+                          raise RuntimeError(f"body_base mismatch {base!r} != {expected[idx]!r}")
+                      resolved[code] = {
+                          "bodyTypeIdx": idx,
+                          "bodyModel": base,
+                          "sourceUrl": url,
+                          "catalogues": data.get("catalogues"),
+                          "notes": data.get("notes"),
+                      }
+                      print(f"OK {code}: {idx} {base} via {host}")
+                      last_error = None
+                      break
+                  except Exception as exc:
+                      last_error = f"{type(exc).__name__}: {exc}"
+              if last_error:
+                  failures.append({"internalCode": code, "error": last_error})
+                  print(f"FAIL {code}: {last_error}")
+              time.sleep(0.05)
 
-          remaining = []
-          for item in unresolved:
-              row = mapping[str(item["playerId"])]
-              if row.get("bodyTypeIdx") is None:
-                  remaining.append(item)
-
-          report["unresolved"] = remaining
-          report["totals"]["bodyTypesResolved"] = report["totals"]["players"] - len(remaining)
-          report["totals"]["unresolved"] = len(remaining)
-          report["liveModelReportResolved"] = len(live)
-          report["liveModelReportFailures"] = failures
-          mapping_path.write_text(json.dumps(mapping, indent=2, ensure_ascii=False)+"\\n")
-          report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False)+"\\n")
-          Path("data/live_body_type_reports.json").write_text(json.dumps(live, indent=2, ensure_ascii=False)+"\\n")
-          print(f"LIVE RESOLVED {len(live)}/{len(unresolved)}; remaining={len(remaining)}")
+          out = {
+              "version": 1,
+              "requested": len(codes),
+              "resolved": len(resolved),
+              "unresolved": len(failures),
+              "profiles": resolved,
+              "failures": failures,
+          }
+          Path("data/live_body_type_profiles.json").write_text(
+              json.dumps(out, indent=2, ensure_ascii=False) + "\n",
+              encoding="utf-8",
+          )
+          print(f"LIVE RESULT resolved={len(resolved)}/{len(codes)} unresolved={len(failures)}")
+          if failures:
+              raise SystemExit(2)
           PY
-      - name: Show report summary
-        if: always()
-        run: |
-          if [ -f data/player_body_profiles_report.json ]; then
-            python - <<'PY'
-          import json
-          from pathlib import Path
-          p = json.loads(Path("data/player_body_profiles_report.json").read_text())
-          print(json.dumps(p.get("totals", {}), indent=2))
-          PY
-          else
-            echo "No report generated"
-          fi
-      - name: Upload generated mapping
+      - name: Upload live body profiles
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: victory-road-player-body-profiles
-          if-no-files-found: warn
-          path: |
-            data/player_body_profiles.json
-            data/player_body_profiles_report.json
-            data/zukan_internal_codes.json
-            data/live_body_type_reports.json
+          name: victory-road-live-body-profiles
+          if-no-files-found: error
+          path: data/live_body_type_profiles.json
