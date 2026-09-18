@@ -9,6 +9,8 @@ a browser-ready JavaScript file without downloading portrait files.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import html
 import json
 import re
@@ -18,10 +20,11 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 
 SOURCE_URL = "https://zukan.inazuma.jp/en/chara_list/"
 DEFAULT_OUTPUT = Path("data/players.js")
+DEFAULT_BODY_CATALOG = Path("data/victory_road_body_profiles.json")
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -119,6 +122,41 @@ def parse_document(markup: str) -> Node:
     return parser.root
 
 
+def decode_zukan_q(value: str) -> dict[str, object] | None:
+    """Decode the obfuscated Zukan q parameter into its JSON object."""
+    if not value:
+        return None
+    try:
+        decoded = unquote(value)
+        padded = decoded + ("=" * (-len(decoded) % 4))
+        inverted = base64.urlsafe_b64decode(padded.encode("ascii"))
+        original = bytes((~byte) & 0xFF for byte in inverted)
+        payload = json.loads(original.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, json.JSONDecodeError, binascii.Error):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def internal_code_from(node: Node, base_url: str) -> str:
+    """Read the stable cXXXXXXXX game id from a Zukan character link."""
+    for link in node.descendants("a"):
+        href = link.attrs.get("href", "")
+        if not href:
+            continue
+        query = parse_qs(urlparse(urljoin(base_url, href)).query)
+        payload = decode_zukan_q(query.get("q", [""])[0])
+        if not payload:
+            continue
+        for key in ("filter_chara_id_str", "character_id"):
+            raw = payload.get(key)
+            candidates = raw if isinstance(raw, list) else [raw]
+            for candidate in candidates:
+                code = clean_text(str(candidate or "")).casefold()
+                if re.fullmatch(r"c\d{8}", code):
+                    return code
+    return ""
+
+
 def image_from(node: Node, base_url: str) -> str:
     candidates: list[tuple[int, str]] = []
     for image in node.descendants("img"):
@@ -173,8 +211,12 @@ def record_from_cells(cells: list[Node], headers: list[str], base_url: str) -> d
     # First inspect the Name cell, then this player's row only. Never borrow an
     # image from the table/page, which could associate another player's portrait.
     values["imageUrl"] = image_from(cells[name_index], base_url)
+    row = cells[0].parent or cells[0]
     if not values["imageUrl"]:
-        values["imageUrl"] = image_from(cells[0].parent or cells[0], base_url)
+        values["imageUrl"] = image_from(row, base_url)
+    internal_code = internal_code_from(row, base_url)
+    if internal_code:
+        values["internalCode"] = internal_code
     return values
 
 
@@ -226,6 +268,9 @@ def extract_definition_records(root: Node, base_url: str) -> list[dict[str, obje
             record["id"] = int(identifier)
             record["teams"] = [] if labels.get("teams") in {None, "", "-"} else [clean_text(labels["teams"])]
             record["imageUrl"] = image_from(candidate, base_url)
+            internal_code = internal_code_from(candidate, base_url)
+            if internal_code:
+                record["internalCode"] = internal_code
             records.append(record)
     return records
 
@@ -428,6 +473,46 @@ def load_players(path: Path) -> list[dict[str, object]]:
     return [unique[key] for key in sorted(unique)]
 
 
+def load_body_profile_catalog(path: Path) -> dict[str, object]:
+    """Load the generated Victory Road body catalog when available."""
+    if not path.exists():
+        return {}
+    try:
+        catalog = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Cannot read body profile catalog {path}: {error}") from error
+    if not isinstance(catalog, dict):
+        raise RuntimeError(f"{path} does not contain a body profile catalog")
+    return catalog
+
+
+def enrich_body_profiles(
+    players: list[dict[str, object]],
+    catalog: dict[str, object],
+) -> list[dict[str, object]]:
+    """Attach authoritative Victory Road body profile data by internalCode."""
+    characters = catalog.get("characters", {})
+    bodies = catalog.get("bodies", {})
+    if not isinstance(characters, dict) or not isinstance(bodies, dict):
+        return [dict(player) for player in players]
+
+    enriched: list[dict[str, object]] = []
+    for player in players:
+        item = dict(player)
+        code = clean_text(str(item.get("internalCode", ""))).casefold()
+        body_id = characters.get(code)
+        body = bodies.get(str(body_id)) if body_id is not None else None
+        if isinstance(body, dict):
+            try:
+                item["bodyId"] = int(body_id)
+                item["bodyProfile"] = int(body["bodyProfile"])
+                item["bodyMeshProfile"] = int(body["bodyMeshProfile"])
+            except (KeyError, TypeError, ValueError):
+                pass
+        enriched.append(item)
+    return enriched
+
+
 def has_information(value: object) -> bool:
     if value is None:
         return False
@@ -506,6 +591,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="JavaScript output path")
+    parser.add_argument(
+        "--body-catalog",
+        type=Path,
+        default=DEFAULT_BODY_CATALOG,
+        help="Victory Road internalCode-to-body profile catalog",
+    )
     parser.add_argument("--profile", type=Path, default=Path(".playwright-profile"), help="Persistent Chromium profile")
     parser.add_argument("--headed", action="store_true", help="Show Chromium to handle a verification page")
     parser.add_argument("--timeout", type=float, default=60, help="Per-page timeout in seconds")
@@ -517,7 +608,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     start_url = args.legacy_source or args.url
-    existing_players = load_players(args.output)
+    body_catalog = load_body_profile_catalog(args.body_catalog)
+    existing_players = enrich_body_profiles(load_players(args.output), body_catalog)
     print(f"Existing players count: {len(existing_players)}")
     if args.html:
         print(f"Start URL: {start_url}")
@@ -533,6 +625,7 @@ def main() -> int:
             raise RuntimeError("At least one fixture record has no same-row portrait URL")
     else:
         extracted_players = scrape(start_url, args.timeout, args.delay, args.headed, args.profile)
+    extracted_players = enrich_body_profiles(extracted_players, body_catalog)
     if not extracted_players:
         print("Newly extracted players count: 0")
         print("Duplicate players skipped: 0")

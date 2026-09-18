@@ -41,6 +41,31 @@ class ExtractPlayersTests(unittest.TestCase):
         self.assertEqual(players[1]["schoolYear"], "")
         self.assertEqual(players[1]["imageUrl"], "https://cdn.example/36.webp")
 
+    def test_extracts_internal_code_from_zukan_q(self):
+        q = "hN2ZlpOLmo2gnJeejZ6glpugjIuN3cWk3ZzPzs_Pz8_Oz92igg%3D%3D"
+        markup = self.markup.replace(
+            "<a>Mark Evans</a>",
+            f'<a href="/en/chara_param/?q={q}">Mark Evans</a>',
+        )
+        players = extract_players.extract_records(markup, extract_players.SOURCE_URL)
+        self.assertEqual(players[0]["internalCode"], "c01000010")
+
+    def test_enriches_victory_road_body_profiles(self):
+        players = [{"id": 1, "name": "Mark Evans", "internalCode": "c01000010"}]
+        catalog = {
+            "characters": {"c01000010": 613579},
+            "bodies": {
+                "613579": {
+                    "bodyProfile": 0,
+                    "bodyMeshProfile": 0,
+                }
+            },
+        }
+        enriched = extract_players.enrich_body_profiles(players, catalog)
+        self.assertEqual(enriched[0]["bodyId"], 613579)
+        self.assertEqual(enriched[0]["bodyProfile"], 0)
+        self.assertEqual(enriched[0]["bodyMeshProfile"], 0)
+
     def test_finds_last_pagination_page(self):
         urls = extract_players.pagination_urls(self.markup, extract_players.SOURCE_URL)
         self.assertTrue(urls[-1].endswith("?page=110"))
