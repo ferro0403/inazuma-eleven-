@@ -1,4 +1,7 @@
 .venv/
 .playwright-profile/
+.playwright-profile-body-catalog/
 __pycache__/
 *.py[cod]
+data/zukan_internal_codes.json
+data/player_body_profiles_report.json
