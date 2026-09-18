@@ -9,6 +9,7 @@ a browser-ready JavaScript file without downloading portrait files.
 from __future__ import annotations
 
 import argparse
+import base64
 import html
 import json
 import re
@@ -18,10 +19,36 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
+from urllib.request import Request, urlopen
 
 SOURCE_URL = "https://zukan.inazuma.jp/en/chara_list/"
 DEFAULT_OUTPUT = Path("data/players.js")
+BODY_LOOKUP_REVISION = "e946d46aff683ec026beea2b578614e5ec570961"
+BODY_LOOKUP_URL = (
+    "https://raw.githubusercontent.com/aphrody-code/nie/"
+    f"{BODY_LOOKUP_REVISION}/plugins/niers-blender/chara_model_lookup.json"
+)
+BODY_PROFILE_MODELS = {
+    0: "base_normal_00",
+    1: "base_normal_01",
+    2: "base_normal_02",
+    3: "base_normal_03",
+    4: "base_tall_00",
+    5: "base_bigman_00",
+    6: "base_bigman_01",
+    7: "base_tall_01",
+    8: "base_tall_02",
+    9: "base_tall_03",
+    10: "base_tall_04",
+    11: "base_tall_05",
+    12: "base_big_00",
+    13: "base_bigwoman_00",
+    14: "base_small_00",
+    15: "base_small_01",
+    16: "base_elderlyman_00",
+    17: "base_elderlywoman_00",
+}
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -51,6 +78,30 @@ def clean_text(value: str) -> str:
 
 def normalize_label(value: str) -> str:
     return clean_text(value).rstrip("：:").casefold()
+
+
+def decode_zukan_query(value: str) -> str:
+    """Decode a Zukan q value and return its game-internal character code."""
+    if not value:
+        return ""
+    try:
+        encoded = unquote(value).strip()
+        encoded += "=" * (-len(encoded) % 4)
+        encrypted = base64.urlsafe_b64decode(encoded.encode("ascii"))
+        decoded = bytes(byte ^ 0xFF for byte in encrypted).decode("utf-8")
+        payload = json.loads(decoded)
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return ""
+
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("character_id", "filter_chara_id_str"):
+        candidate = payload.get(key)
+        if isinstance(candidate, list) and candidate and isinstance(candidate[0], str):
+            return candidate[0].strip().casefold()
+        if isinstance(candidate, str):
+            return candidate.strip().casefold()
+    return ""
 
 
 @dataclass
@@ -150,6 +201,128 @@ def split_teams(cell: Node) -> list[str]:
     return teams
 
 
+def internal_code_from(node: Node, base_url: str) -> str:
+    """Read the game-internal character code from this player's Zukan detail link."""
+    for link in node.descendants("a"):
+        href = link.attrs.get("href", "")
+        if not href:
+            continue
+        query = parse_qs(urlparse(urljoin(base_url, href)).query)
+        for value in query.get("q", []):
+            internal_code = decode_zukan_query(value)
+            if internal_code:
+                return internal_code
+    return ""
+
+
+def preferred_uniform_mesh_profile(body_profile: int, body_mesh_profile: int) -> int:
+    """Return the standard 0..7 uniform mesh variant used by modular kits."""
+    if 0 <= body_profile <= 7:
+        return body_profile
+    if 0 <= body_mesh_profile <= 7:
+        return body_mesh_profile
+    return 0
+
+
+def build_body_profile_index(payload: object) -> dict[str, dict[str, object]]:
+    """Build internalCode -> authoritative Victory Road body metadata."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("models"), dict):
+        raise RuntimeError("Body lookup does not contain a models object")
+
+    index: dict[str, dict[str, object]] = {}
+    for model in payload["models"].values():
+        if not isinstance(model, dict):
+            continue
+        model_path = clean_text(str(model.get("model_path", "")))
+        internal_code = Path(model_path).stem.casefold()
+        # Shared body/skeleton assets also use c-prefixed names (for example
+        # c000101) but are not character IDs. Zukan character IDs are c + 8
+        # digits, optionally followed by a variant suffix.
+        if not re.fullmatch(r"c\d{8}(?:_\d+)?", internal_code):
+            continue
+        try:
+            body_profile = int(model["body_profile"])
+            body_mesh_profile = int(model["body_mesh_profile"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        metadata: dict[str, object] = {
+            "bodyProfile": body_profile,
+            "bodyMeshProfile": body_mesh_profile,
+            "uniformMeshProfile": preferred_uniform_mesh_profile(
+                body_profile,
+                body_mesh_profile,
+            ),
+        }
+        skeleton = clean_text(str(model.get("g4sk_stem", "")))
+        if skeleton:
+            metadata["bodySkeleton"] = skeleton
+        body_model = BODY_PROFILE_MODELS.get(body_profile)
+        if body_model:
+            metadata["bodyModel"] = body_model
+
+        previous = index.get(internal_code)
+        if previous is None:
+            index[internal_code] = metadata
+        elif previous != metadata:
+            raise RuntimeError(
+                f"Conflicting body metadata for {internal_code}: {previous!r} vs {metadata!r}"
+            )
+    return index
+
+
+def load_body_profile_index(cache_path: Path, refresh: bool = False) -> dict[str, dict[str, object]]:
+    """Load the public niers chara_model lookup, downloading it once when needed."""
+    raw: str
+    if cache_path.exists() and not refresh:
+        raw = cache_path.read_text(encoding="utf-8")
+    else:
+        request = Request(BODY_LOOKUP_URL, headers={"User-Agent": USER_AGENT})
+        try:
+            with urlopen(request, timeout=60) as response:
+                raw = response.read().decode("utf-8")
+        except Exception as error:
+            raise RuntimeError(
+                f"Could not download body lookup from {BODY_LOOKUP_URL}. "
+                f"If it was downloaded before, keep {cache_path} available."
+            ) from error
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"Body lookup at {cache_path} is not valid JSON") from error
+    index = build_body_profile_index(payload)
+
+    if not cache_path.exists() or refresh:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = cache_path.with_suffix(cache_path.suffix + ".tmp")
+        temporary.write_text(raw, encoding="utf-8")
+        temporary.replace(cache_path)
+    return index
+
+
+def enrich_body_profiles(
+    players: list[dict[str, object]],
+    body_index: dict[str, dict[str, object]],
+) -> tuple[int, list[str]]:
+    """Attach authoritative body metadata to every player with a resolvable internal code."""
+    resolved = 0
+    unresolved: list[str] = []
+    for player in players:
+        internal_code = clean_text(str(player.get("internalCode", ""))).casefold()
+        if not internal_code:
+            continue
+        metadata = body_index.get(internal_code)
+        if metadata is None and "_" in internal_code:
+            metadata = body_index.get(internal_code.split("_", 1)[0])
+        if metadata is None:
+            unresolved.append(f"{player.get('id', '?')} ({player.get('name', '?')}: {internal_code})")
+            continue
+        player.update(metadata)
+        resolved += 1
+    return resolved, unresolved
+
+
 def record_from_cells(cells: list[Node], headers: list[str], base_url: str) -> dict[str, object] | None:
     values: dict[str, object] = {field: "" for field in EXPECTED_FIELDS}
     values["teams"] = []
@@ -175,6 +348,9 @@ def record_from_cells(cells: list[Node], headers: list[str], base_url: str) -> d
     values["imageUrl"] = image_from(cells[name_index], base_url)
     if not values["imageUrl"]:
         values["imageUrl"] = image_from(cells[0].parent or cells[0], base_url)
+    internal_code = internal_code_from(cells[name_index], base_url)
+    if internal_code:
+        values["internalCode"] = internal_code
     return values
 
 
@@ -226,6 +402,9 @@ def extract_definition_records(root: Node, base_url: str) -> list[dict[str, obje
             record["id"] = int(identifier)
             record["teams"] = [] if labels.get("teams") in {None, "", "-"} else [clean_text(labels["teams"])]
             record["imageUrl"] = image_from(candidate, base_url)
+            internal_code = internal_code_from(candidate, base_url)
+            if internal_code:
+                record["internalCode"] = internal_code
             records.append(record)
     return records
 
@@ -511,6 +690,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=float, default=60, help="Per-page timeout in seconds")
     parser.add_argument("--delay", type=float, default=0.2, help="Delay between page requests")
     parser.add_argument("--html", type=Path, help="Parse one saved HTML page instead of opening Chromium")
+    parser.add_argument(
+        "--body-lookup",
+        type=Path,
+        help="Cached chara_model_lookup.json path (defaults inside the Playwright profile)",
+    )
+    parser.add_argument(
+        "--refresh-body-lookup",
+        action="store_true",
+        help="Redownload the authoritative Victory Road body lookup before enriching players",
+    )
     return parser
 
 
@@ -538,6 +727,25 @@ def main() -> int:
         print("Duplicate players skipped: 0")
         print(f"Final total players count: {len(existing_players)}")
         raise RuntimeError("Zero players were found; data/players.js was not changed.")
+
+    internal_code_count = sum(bool(player.get("internalCode")) for player in extracted_players)
+    if internal_code_count:
+        body_lookup_path = args.body_lookup or (args.profile / "chara_model_lookup.json")
+        body_index = load_body_profile_index(
+            body_lookup_path,
+            refresh=args.refresh_body_lookup,
+        )
+        resolved_bodies, unresolved_bodies = enrich_body_profiles(extracted_players, body_index)
+        print(f"Body profiles resolved: {resolved_bodies}/{internal_code_count}")
+        if unresolved_bodies:
+            print(
+                "Body profiles not found for "
+                f"{len(unresolved_bodies)} records: {', '.join(unresolved_bodies[:10])}",
+                file=sys.stderr,
+            )
+    else:
+        print("Body profiles resolved: 0 (no Zukan internal codes found)")
+
     players, duplicate_count = merge_players(existing_players, extracted_players)
     write_players(players, args.output, start_url)
     print(f"Newly extracted players count: {len(extracted_players)}")
