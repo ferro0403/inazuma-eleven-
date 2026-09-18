@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "id": "mark-evans-raimon-ie1-fielder-real-3d",
+  "purpose": "Regression fixture for proving a real Victory Road GLB assembly. It is not a player-assignment database.",
+  "character": {
+    "internalCode": "c01000010",
+    "name": "Mark Evans",
+    "bodyId": 613579,
+    "bodyTypeIdx": 0,
+    "bodyMeshProfile": 0,
+    "bodyPath": "_common/c000101/c000101.objbin",
+    "skeleton": "c000101",
+    "skeletonPath": "c000101/c000101.g4sk"
+  },
+  "uniform": {
+    "variant": "fielder",
+    "kitNameIdHex": "0x252CE113",
+    "fielderModelCrcHex": "0x9D2BBD10",
+    "keeperModelCrcHex": "0x55CB3260",
+    "shoesFielderModelCrcHex": "0x9035CD57",
+    "gloveModelCrcHex": "0xBE70ECC5",
+    "logicalCode": "u010101_10",
+    "meshCode": "u000101",
+    "bodyProfileRequested": 0
+  },
+  "requirements": [
+    {
+      "role": "mark-face-model",
+      "required": true,
+      "acceptedPathSuffixes": [
+        "_face/01_IE1/c01000010/c01000010.g4md"
+      ]
+    },
+    {
+      "role": "mark-face-geometry",
+      "required": true,
+      "acceptedPathSuffixes": [
+        "_face/01_IE1/c01000010/c01000010.g4mg"
+      ]
+    },
+    {
+      "role": "mark-face-texture",
+      "required": true,
+      "acceptedPathSuffixes": [
+        "_face/01_IE1/c01000010/c01000010.g4tx"
+      ]
+    },
+    {
+      "role": "mark-body-skeleton",
+      "required": true,
+      "acceptedPathSuffixes": [
+        "c000101/c000101.g4sk"
+      ]
+    },
+    {
+      "role": "raimon-fielder-uniform-model",
+      "required": true,
+      "acceptedPathSuffixes": [
+        "_uniform/u000101/u000101.g4md"
+      ]
+    },
+    {
+      "role": "raimon-fielder-uniform-geometry",
+      "required": true,
+      "acceptedPathSuffixes": [
+        "_uniform/u000101/u000101.g4mg"
+      ]
+    },
+    {
+      "role": "raimon-fielder-uniform-texture",
+      "required": true,
+      "acceptedPathSuffixes": [
+        "_uniform/u000101/u010101_10.g4tx"
+      ]
+    },
+    {
+      "role": "chara-parts-config",
+      "required": false,
+      "acceptedPathSuffixes": [
+        "character/chara_parts_0.07.22.cfg.bin"
+      ]
+    },
+    {
+      "role": "chara-model-config",
+      "required": false,
+      "acceptedPathSuffixes": [
+        "character/chara_model_1.03.49.00.cfg.bin"
+      ]
+    },
+    {
+      "role": "uniform-config",
+      "required": false,
+      "acceptedPathSuffixes": [
+        "character/uniform_config_1.03.52.00.cfg.bin"
+      ]
+    }
+  ],
+  "dynamicCompanionResolution": {
+    "authority": "CHARA_PARTS_CLOTHES_INFO / CHARA_PARTS_SHOES_INFO / CHARA_PARTS_GLOVE_INFO",
+    "rule": "Select the exact body profile row. Only if absent, use the game's profile-0 fallback.",
+    "note": "Nameplate, skin, armband, shoes and glove asset paths are intentionally not guessed in this fixture; they must come from chara_parts."
+  },
+  "sources": {
+    "nieRepository": "aphrody-code/nie",
+    "nieCommit": "e946d46aff683ec026beea2b578614e5ec570961",
+    "bodyCatalog": "data/victory_road_body_profiles.json",
+    "nieUniformGolden": "crates/engine/nie-data/tests/uniform_golden.rs",
+    "nieCharacterPartsResolver": "crates/tools/nie-model-serve/src/catalog.rs",
+    "nieAssembler": "crates/tools/nie-model-serve/src/main.rs",
+    "communityUniformSampleAdvertisedSize": "393.83 KB",
+    "communityUniformSampleUrl": "https://archive.vg-resource.com/thread-42937-post-682863.html"
+  }
+}
