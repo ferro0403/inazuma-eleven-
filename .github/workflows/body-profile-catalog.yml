@@ -15,20 +15,73 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect NIE v0.5.9 package
+      - name: Inspect NIE v0.5.9 packaged databases
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq msitools unzip
+          sudo apt-get install -y -qq msitools sqlite3
           curl -L --fail --retry 3 -o /tmp/niers.msi \
             https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers_0.5.9_x64_en-US.msi
           mkdir -p /tmp/niers-msi
           msiextract -C /tmp/niers-msi /tmp/niers.msi >/dev/null
-          echo "=== RELEVANT MSI FILES ==="
-          find /tmp/niers-msi -type f | sed 's#^/tmp/niers-msi/##' | grep -Ei '(body|model|chara|manifest|mirror|sqlite|lookup|catalog)' | sort | head -500 || true
-          echo "=== ALL JSON/NDJSON/DB/GZ ==="
-          find /tmp/niers-msi -type f | sed 's#^/tmp/niers-msi/##' | grep -Ei '\.(json|ndjson|sqlite|db|gz)$' | sort | head -1000 || true
-          echo "=== PLUGIN ZIP ==="
-          curl -L --fail --retry 3 -o /tmp/niers.zip \
-            https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers-1.1.0.zip
-          unzip -l /tmp/niers.zip | grep -Ei '(body|model|chara|manifest|mirror|sqlite|lookup|catalog|json|ndjson)' | head -1000 || true
+
+          gzip -dc /tmp/niers-msi/PFiles/niers/resources/db/mirror.sqlite.gz > /tmp/mirror.sqlite
+          gzip -dc /tmp/niers-msi/PFiles/niers/resources/db/niers.sqlite.gz > /tmp/niers.sqlite
+
+          python - <<'PY'
+          import sqlite3, re
+
+          samples = ["c07110020", "c07050010", "c03031470", "c01000915"]
+
+          for db_path in ["/tmp/mirror.sqlite", "/tmp/niers.sqlite"]:
+              print("\n===== DATABASE", db_path, "=====")
+              con = sqlite3.connect(db_path)
+              con.row_factory = sqlite3.Row
+              tables = [r[0] for r in con.execute(
+                  "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+              )]
+              print("TABLE_COUNT", len(tables))
+              print("TABLES", tables)
+
+              for table in tables:
+                  safe_table = table.replace('"', '""')
+                  cols = list(con.execute(f'PRAGMA table_info("{safe_table}")'))
+                  names = [c[1] for c in cols]
+                  hay = (table + " " + " ".join(names)).lower()
+                  if re.search(r"chara|character|model|body|asset|manifest|vfs", hay):
+                      print("CANDIDATE_SCHEMA", table, names)
+
+              # Search exact internal codes in every queryable column. This is
+              # diagnostic only: it does not infer aliases or body types.
+              for code in samples:
+                  hits = []
+                  for table in tables:
+                      safe_table = table.replace('"', '""')
+                      cols = list(con.execute(f'PRAGMA table_info("{safe_table}")'))
+                      for col in cols:
+                          col_name = col[1]
+                          safe_col = col_name.replace('"', '""')
+                          try:
+                              rows = con.execute(
+                                  f'SELECT * FROM "{safe_table}" WHERE CAST("{safe_col}" AS TEXT)=? LIMIT 3',
+                                  (code,),
+                              ).fetchall()
+                          except sqlite3.DatabaseError:
+                              continue
+                          for row in rows:
+                              hits.append({
+                                  "table": table,
+                                  "column": col_name,
+                                  "row": dict(row),
+                              })
+                  print("EXACT_CODE", code, "HITS", hits)
+
+              # Also expose schema SQL for likely source tables.
+              for table in tables:
+                  if re.search(r"chara|character|model|body", table, re.I):
+                      row = con.execute(
+                          "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+                      ).fetchone()
+                      print("SCHEMA_SQL", table, row[0] if row else None)
+              con.close()
+          PY
