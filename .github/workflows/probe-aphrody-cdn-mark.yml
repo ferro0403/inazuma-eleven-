@@ -1,0 +1,54 @@
+name: Probe Aphrody CDN Mark
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+    paths:
+      - .github/workflows/probe-aphrody-cdn-mark.yml
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe new Aphrody CDN contract
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p probe
+          urls=(
+            "https://cdn.aphrody.com/health"
+            "https://cdn.aphrody.com/model-full/c01000010.glb"
+            "https://cdn.aphrody.com/model-full/c01000010.glb?v=5"
+            "https://cdn.aphrody.com/dx11/chr/_face/01_IE1/c01000010/c01000010.png"
+            "https://cdn.aphrody.com/dx11/chr/_face/01_ie1/c01000010/c01000010.png"
+            "https://cdn.aphrody.com/dx11/chr/_uniform/u000101/u010101_10.png"
+            "https://cdn.aphrody.com/dx11/chr/_uniform/u000101/u000101_10.png"
+            "https://nie.aphrody.com/health"
+            "https://nie.aphrody.com/assets/model-full/c01000010.glb"
+          )
+          : > probe/report.txt
+          i=0
+          for url in "${urls[@]}"; do
+            i=$((i+1))
+            out="probe/r$i"
+            code="$(curl -L -sS -A 'Mozilla/5.0' -o "$out" -D "probe/h$i" -w '%{http_code}' --connect-timeout 15 --max-time 120 "$url" || true)"
+            bytes="$(wc -c < "$out" 2>/dev/null || echo 0)"
+            headhex="$(xxd -p -l 16 "$out" 2>/dev/null | tr -d '\n' || true)"
+            type="$(grep -i '^content-type:' "probe/h$i" | tail -1 | tr -d '\r' || true)"
+            sha="$(sha256sum "$out" 2>/dev/null | awk '{print $1}' || true)"
+            echo "$url status=$code $type bytes=$bytes head=$headhex sha256=$sha" | tee -a probe/report.txt
+            case "$headhex" in
+              676c544602000000*) cp "$out" probe/c01000010.glb ;;
+              89504e470d0a1a0a*) cp "$out" "probe/image_$i.png" ;;
+            esac
+          done
+          cat probe/report.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aphrody-cdn-mark-probe
+          path: probe/
+          if-no-files-found: error
