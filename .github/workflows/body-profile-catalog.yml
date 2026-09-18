@@ -1,0 +1,137 @@
+name: Probe exact Victory Road body aliases
+
+on:
+  push:
+    branches: [feature/player-body-profiles-exact]
+    paths: [.github/workflows/body-profile-catalog.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe-exact-body-aliases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Resolve mirror model ids against authoritative lookup
+        run: |
+          python - <<'PY'
+          import ast, json, re, urllib.parse, urllib.request
+          from pathlib import Path
+
+          parent = "85d116e6dfcaa2995b596e212a2ce3b7a1f1b11f"
+          old_workflow = f"https://raw.githubusercontent.com/ferro0403/inazuma-eleven-/{parent}/.github/workflows/body-profile-catalog.yml"
+          bobi_commit = "bcd51c767820ca8b80c3115628314512cf106028"
+          lookup_url = f"https://raw.githubusercontent.com/The-RealBobi/G4_Blender/{bobi_commit}/chara_model_lookup.json"
+          api_base = "https://nie.aphrody.com/api/v1/entites/inagle_characters"
+          anchors = ["c01000010", "c01000100", "c01000030", "c01000050"]
+
+          def get_bytes(url):
+              req = urllib.request.Request(url, headers={"User-Agent":"inazuma-body-profile-exact/1.0"})
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  return response.read()
+
+          def get_json(url):
+              return json.loads(get_bytes(url))
+
+          old_text = get_bytes(old_workflow).decode("utf-8")
+          match = re.search(r"^\s*codes\s*=\s*(\[[^\n]+\])", old_text, re.M)
+          if not match:
+              raise RuntimeError("Could not recover unresolved code list from parent workflow")
+          missing = ast.literal_eval(match.group(1))
+          if len(missing) != 87:
+              raise RuntimeError(f"Expected 87 unresolved codes, found {len(missing)}")
+
+          lookup = get_json(lookup_url)
+          models = lookup.get("models", {})
+          if not isinstance(models, dict):
+              raise RuntimeError("Authoritative lookup has no models object")
+          catalog = json.loads(Path("data/victory_road_body_profiles.json").read_text(encoding="utf-8"))
+
+          def rows_for(code):
+              query = urllib.parse.urlencode({"per_page": 50, "internal_code": code})
+              payload = get_json(api_base + "?" + query)
+              if isinstance(payload.get("elements"), list):
+                  return payload["elements"]
+              if isinstance(payload.get("page"), dict) and isinstance(payload["page"].get("elements"), list):
+                  return payload["page"]["elements"]
+              return []
+
+          def scalars(value):
+              if isinstance(value, dict):
+                  for child in value.values():
+                      yield from scalars(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      yield from scalars(child)
+              elif isinstance(value, (str, int, float)):
+                  yield str(value).casefold()
+
+          output = {
+              "version": 1,
+              "mirrorApi": api_base,
+              "lookup": {
+                  "repository": "The-RealBobi/G4_Blender",
+                  "commit": bobi_commit,
+                  "path": "chara_model_lookup.json",
+                  "source": lookup.get("source"),
+                  "version": lookup.get("version"),
+                  "modelCount": len(models),
+              },
+              "records": {},
+              "anchorLookupSamples": {},
+          }
+
+          for code in anchors + missing:
+              rows = rows_for(code)
+              model_ids = sorted({str(r["model_id"]).casefold() for r in rows if r.get("model_id")})
+              hits = []
+              for model_path, raw in models.items():
+                  values = set(scalars(raw))
+                  path_cf = str(model_path).casefold()
+                  for model_id in model_ids:
+                      if model_id == path_cf or model_id in values:
+                          hits.append({
+                              "modelId": model_id,
+                              "modelPath": model_path,
+                              "bodyId": raw.get("body_id"),
+                              "bodyTypeIdx": raw.get("body_profile"),
+                              "bodyMeshProfile": raw.get("body_mesh_profile"),
+                          })
+              output["records"][code] = {
+                  "rows": [{
+                      "internalCode": r.get("internal_code"),
+                      "charaId": r.get("chara_id"),
+                      "modelId": r.get("model_id"),
+                      "baseSlug": r.get("base_slug"),
+                      "zukanOrder": r.get("zukan_order"),
+                  } for r in rows],
+                  "modelIds": model_ids,
+                  "directBodyId": catalog.get("characters", {}).get(code),
+                  "exactLookupHits": hits,
+              }
+              print(code, "modelIds=", model_ids, "direct=", output["records"][code]["directBodyId"], "hits=", hits[:3])
+
+          for code in anchors:
+              for model_path, raw in models.items():
+                  if f"/{code}/" in str(model_path).casefold():
+                      output["anchorLookupSamples"][code] = {"modelPath": model_path, "raw": raw}
+                      break
+
+          Path("data/exact_body_alias_probe.json").write_text(
+              json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          )
+          print("RESULT", len(missing), "missing codes probed")
+          PY
+      - name: Upload exact alias probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: victory-road-exact-body-alias-probe
+          if-no-files-found: error
+          path: data/exact_body_alias_probe.json
