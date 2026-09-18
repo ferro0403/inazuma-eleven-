@@ -1,0 +1,53 @@
+name: Probe Azalee Mark model
+
+on:
+  push:
+    branches:
+      - feature/player-body-profiles-exact
+    paths:
+      - .github/workflows/probe-azalee-mark-model.yml
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe exact public model routes
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p probe
+          urls=(
+            "https://azalee.rosegriffon.fr/model/perso/c01000010.glb"
+            "https://azalee.rosegriffon.fr/model/perso/c01000010.png"
+            "https://azalee.rosegriffon.fr/api/v1/3d/modeles/perso/c01000010?rapport=1"
+            "https://azalee.rosegriffon.fr/api/v1/3d"
+          )
+          : > probe/report.txt
+          i=0
+          for url in "${urls[@]}"; do
+            i=$((i+1))
+            out="probe/response_$i"
+            echo "=== $url ===" | tee -a probe/report.txt
+            code="$(curl -L -sS -A 'Mozilla/5.0' -o "$out" -D "probe/headers_$i.txt" -w '%{http_code}' --connect-timeout 15 --max-time 120 "$url" || true)"
+            type="$(grep -i '^content-type:' "probe/headers_$i.txt" | tail -1 | tr -d '\r' || true)"
+            bytes="$(wc -c < "$out" 2>/dev/null || echo 0)"
+            headhex="$(xxd -p -l 16 "$out" 2>/dev/null | tr -d '\n' || true)"
+            sha="$(sha256sum "$out" 2>/dev/null | awk '{print $1}' || true)"
+            echo "status=$code $type bytes=$bytes head=$headhex sha256=$sha" | tee -a probe/report.txt
+            if [ "$headhex" = "676c544602000000"* ]; then
+              mv "$out" probe/c01000010.glb
+            elif [ "$headhex" = "89504e470d0a1a0a"* ]; then
+              mv "$out" probe/c01000010.png
+            else
+              mv "$out" "$out.txt"
+            fi
+          done
+          cat probe/report.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: azalee-mark-model-probe
+          path: probe/
+          if-no-files-found: error
