@@ -1,4 +1,4 @@
-name: Probe live NIE model ids for unresolved body profiles
+name: Resolve exact Victory Road body aliases
 
 on:
   push:
@@ -10,16 +10,24 @@ permissions:
   contents: read
 
 jobs:
-  live-model-ids:
+  resolve:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Query exact unresolved codes from live NIE catalog
+      - name: Probe authoritative lookup and NIE mirror
         run: |
           set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq msitools
+          curl -L --fail --retry 3 -o /tmp/chara_model_lookup.json \
+            https://raw.githubusercontent.com/The-RealBobi/G4_Blender/main/chara_model_lookup.json
+          curl -L --fail --retry 3 -o /tmp/niers.msi \
+            https://github.com/aphrody-code/nie/releases/download/v0.5.9/niers_0.5.9_x64_en-US.msi
+          mkdir -p /tmp/niers-msi
+          msiextract -C /tmp/niers-msi /tmp/niers.msi >/dev/null
           python - <<'PY'
-          import ast, json, re, time, urllib.parse, urllib.request
+          import ast, gzip, json, re, sqlite3, urllib.request, zlib
           from pathlib import Path
 
           old_url = "https://raw.githubusercontent.com/ferro0403/inazuma-eleven-/85d116e6dfcaa2995b596e212a2ce3b7a1f1b11f/.github/workflows/body-profile-catalog.yml"
@@ -29,59 +37,142 @@ jobs:
           if not m:
               raise RuntimeError("missing unresolved code list")
           codes = ast.literal_eval(m.group(1))
-          if len(codes) != 87:
-              raise RuntimeError(f"expected 87 codes, got {len(codes)}")
+          assert len(codes) == 87, len(codes)
 
-          records = {}
-          for code in codes:
-              url = "https://nie.aphrody.com/api/v1/chara?" + urllib.parse.urlencode({
-                  "q": code,
-                  "per_page": 50,
-              })
-              try:
-                  req = urllib.request.Request(url, headers={"User-Agent": "inazuma-body-profile-audit/1.0"})
-                  with urllib.request.urlopen(req, timeout=30) as r:
-                      payload = json.load(r)
-                  rows = payload.get("elements") or payload.get("page", {}).get("elements") or []
-                  exact = [row for row in rows if (row.get("internal_code") or "").casefold() == code.casefold()]
-                  records[code] = exact
-              except Exception as exc:
-                  records[code] = [{"_error": repr(exc)}]
-              time.sleep(0.03)
-
-          resolved = {
-              code: rows[0].get("model_id")
-              for code, rows in records.items()
-              if rows and not rows[0].get("_error") and rows[0].get("model_id")
-          }
-          errors = {code: rows for code, rows in records.items() if rows and rows[0].get("_error")}
-          print("RESULT requested=", len(codes), "model_ids=", len(resolved), "errors=", len(errors))
-          for code in codes:
-              rows = records[code]
-              if not rows:
-                  print(code, "NO_ROW")
-              elif rows[0].get("_error"):
-                  print(code, "ERROR", rows[0]["_error"])
+          # 1) Latest authoritative G4_Blender lookup.
+          lookup = json.loads(Path("/tmp/chara_model_lookup.json").read_text(encoding="utf-8"))
+          print("LOOKUP_KEYS", list(lookup)[:20])
+          for k, v in lookup.items():
+              if isinstance(v, dict):
+                  print("LOOKUP_SECTION", k, "dict", len(v))
+              elif isinstance(v, list):
+                  print("LOOKUP_SECTION", k, "list", len(v))
               else:
-                  row = rows[0]
-                  print(code, "model_id=", row.get("model_id"), "chara_id=", row.get("chara_id"), "zukan_order=", row.get("zukan_order"))
+                  print("LOOKUP_SECTION", k, type(v).__name__, repr(v)[:200])
 
-          out = {
-              "version": 1,
-              "source": "https://nie.aphrody.com/api/v1/chara",
-              "requested": len(codes),
-              "resolvedModelIds": len(resolved),
-              "records": records,
+          chars = lookup.get("characters") if isinstance(lookup.get("characters"), dict) else {}
+          bodies = lookup.get("bodies") if isinstance(lookup.get("bodies"), dict) else {}
+          latest = {}
+          for code in codes:
+              body_id = chars.get(code)
+              body = bodies.get(str(body_id)) if body_id is not None else None
+              latest[code] = {
+                  "bodyId": body_id,
+                  "bodyTypeIdx": body.get("bodyProfile") if isinstance(body, dict) else None,
+                  "body": body if isinstance(body, dict) else None,
+              }
+          print("LATEST_DIRECT", sum(v["bodyTypeIdx"] is not None for v in latest.values()), "/", len(codes))
+          for code, row in latest.items():
+              if row["bodyTypeIdx"] is not None:
+                  print("LATEST_RESOLVED", code, row["bodyId"], row["bodyTypeIdx"])
+
+          # 2) Packaged NIE mirror: inspect missing rows and every relevant table/column.
+          roots = list(Path("/tmp/niers-msi").rglob("mirror.sqlite.gz"))
+          if len(roots) != 1:
+              roots = [p for p in Path("/tmp/niers-msi").rglob("*.gz") if "mirror" in p.name.lower()]
+          if len(roots) != 1:
+              raise RuntimeError(f"expected one mirror, got {roots}")
+          db = Path("/tmp/mirror.sqlite")
+          with gzip.open(roots[0], "rb") as src, db.open("wb") as dst:
+              while chunk := src.read(1024 * 1024):
+                  dst.write(chunk)
+          con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+          con.row_factory = sqlite3.Row
+
+          rows = {}
+          placeholders = ",".join("?" for _ in codes)
+          for r in con.execute(f"SELECT * FROM inagle_characters WHERE internal_code IN ({placeholders})", codes):
+              d = dict(r)
+              code = d.get("internal_code")
+              findings = {}
+              for key, val in d.items():
+                  if val is None:
+                      continue
+                  if key in {"internal_code","chara_id","model_id","base_slug","zukan_order"}:
+                      findings[key] = val
+                  if isinstance(val, str) and key in {"data","sheet_data","game_appearances","teams"}:
+                      try:
+                          parsed = json.loads(val)
+                      except Exception:
+                          parsed = val
+                      findings[key] = parsed
+              rows[code] = findings
+
+          # Search all columns whose names are semantically relevant for exact tokens.
+          tokens = {}
+          for code in codes:
+              crc = zlib.crc32(code.encode()) & 0xffffffff
+              tokens[code] = {code.lower(), f"{crc:08x}", f"0x{crc:08x}"}
+          token_to_code = {tok: code for code, ts in tokens.items() for tok in ts}
+
+          schema = {}
+          hits = {c: [] for c in codes}
+          tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
+          relevant_name = re.compile(r"(model|chara|character|internal|code|base|variant|costume|form|data)", re.I)
+          for table in tables:
+              cols = [r[1] for r in con.execute(f'PRAGMA table_info("{table}")')]
+              rel = [c for c in cols if relevant_name.search(c)]
+              if not rel:
+                  continue
+              schema[table] = rel
+              quoted = ",".join('"' + c.replace('"','""') + '"' for c in rel)
+              try:
+                  cur = con.execute(f'SELECT rowid,{quoted} FROM "{table}"')
+              except sqlite3.DatabaseError:
+                  continue
+              for row in cur:
+                  rowid = row[0]
+                  for ci, col in enumerate(rel, start=1):
+                      val = row[ci]
+                      if val is None:
+                          continue
+                      s = str(val).lower()
+                      # Fast prefilter: only cells containing c0/c1 or 8-hex token need checks.
+                      if "c0" not in s and "c1" not in s and "0x" not in s and len(s) < 8:
+                          continue
+                      for tok, code in token_to_code.items():
+                          if tok in s:
+                              excerpt = str(val)
+                              if len(excerpt) > 500:
+                                  pos = s.find(tok)
+                                  excerpt = excerpt[max(0,pos-180):pos+len(tok)+180]
+                              item={"table":table,"column":col,"rowid":rowid,"token":tok,"value":excerpt}
+                              if item not in hits[code] and len(hits[code]) < 50:
+                                  hits[code].append(item)
+
+          payload = {
+              "version": 2,
+              "codes": codes,
+              "authoritativeLookup": {
+                  "source": "The-RealBobi/G4_Blender/main/chara_model_lookup.json",
+                  "characters": len(chars),
+                  "bodies": len(bodies),
+                  "results": latest,
+              },
+              "mirror": {
+                  "release": "aphrody-code/nie v0.5.9",
+                  "characterRows": rows,
+                  "relevantSchema": schema,
+                  "crossTableHits": hits,
+              },
           }
-          Path("data/nie_live_model_ids_for_body_profiles.json").write_text(
-              json.dumps(out, ensure_ascii=False, indent=2) + "\n",
-              encoding="utf-8",
+          Path("data/body_profile_alias_probe.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
           )
+
+          print("MIRROR_ROWS", len(rows))
+          useful=0
+          for code in codes:
+              external=[h for h in hits[code] if h["table"] != "inagle_characters" or h["column"] not in {"internal_code","chara_id"}]
+              if external:
+                  useful += 1
+                  print("CROSS_HIT", code, json.dumps(external[:6], ensure_ascii=False))
+          print("CROSS_CODES", useful)
           PY
-      - name: Upload live exact model ids
+      - name: Upload probe
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nie-live-model-ids
+          name: exact-body-alias-probe
           if-no-files-found: error
-          path: data/nie_live_model_ids_for_body_profiles.json
+          path: data/body_profile_alias_probe.json
