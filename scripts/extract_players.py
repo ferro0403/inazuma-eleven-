@@ -303,7 +303,7 @@ def browser_markup(page, url: str, timeout_ms: int, attempts: int = 3) -> str:
     ) from last_error
 
 
-def scrape(source_url: str, timeout: float, delay: float, headed: bool, profile: Path) -> list[dict[str, object]]:
+def scrape(source_url: str, timeout: float, delay: float, headed: bool, profile: Path, on_page=None) -> list[dict[str, object]]:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as error:
@@ -335,6 +335,11 @@ def scrape(source_url: str, timeout: float, delay: float, headed: bool, profile:
             final_page = max((page_number(url) for url in links), default=1)
             final_page = max(final_page, *(int(number) for number in re.findall(r"[?&]page=(\d+)", first_markup)), 1)
             total = reported_total(first_markup)
+            if total is not None:
+                # The official site collapses pagination links; do not stop early.
+                final_page = max(final_page, (total + len(first_records) - 1) // len(first_records))
+            if on_page:
+                on_page(first_markup, first_url)
             all_records = {int(record["id"]): record for record in first_records}
             initial_page = page_number(first_url)
             print(
@@ -350,6 +355,8 @@ def scrape(source_url: str, timeout: float, delay: float, headed: bool, profile:
                 url = page_url(source_url, number)
                 markup = browser_markup(page, url, timeout_ms)
                 records = extract_records(markup, page.url)
+                if on_page:
+                    on_page(markup, page.url)
                 if not records:
                     raise RuntimeError(f"No character rows found on page {number}; output was not changed.")
                 for record in records:
