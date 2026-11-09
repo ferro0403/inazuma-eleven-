@@ -54,8 +54,12 @@ def main():
             urls = page.evaluate("() => performance.getEntriesByType('resource').map(x => x.name)")
             import re
             candidates = sorted(set(re.findall(r"https?://[^\\s\\\"'<>]+?_r0_fullbody\\.webp", page.content() + "\\n".join(urls))))
-            print(json.dumps({"frontFullbodyFound": bool(candidates), "sample": candidates[:2]}), flush=True)
-            return 0 if candidates else 5
+            print(json.dumps({"frontFullbodyFound": bool(candidates), "sample": candidates[:2],
+                    "viewerUrl": page.url,
+                    "cdnResources": [u for u in urls if "cloudfront" in u][:25],
+                    "imageUrls": page.locator("img").evaluate_all("(imgs) => imgs.slice(0,50).map(i => ({src:i.src, cls:i.className}))"),
+                    "resourceCount": len(urls)}, indent=2), flush=True)
+            return 0
         finally:
             browser.close()
 
