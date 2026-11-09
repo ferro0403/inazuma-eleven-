@@ -10,7 +10,7 @@
   const Tournaments = globalThis.InazumaTournamentStore;
   const PAGE_SIZE = 48;
   const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
-  const state = { search: "", team: "", position: "", element: "", page: 1, teamSearch: "", selectedTeams: new Set(), editingTeam: null, editingTournament: null, tournamentDraft: { teamId: "", playerIds: [], editIndex: null } };
+  const state = { search: "", game: "", team: "", position: "", element: "", page: 1, teamSearch: "", selectedTeams: new Set(), editingTeam: null, editingTournament: null, tournamentDraft: { teamId: "", playerIds: [], editIndex: null } };
   const elementClass = { Fire: "fire", Forest: "forest", Wind: "wind", Mountain: "mountain" };
   const elementSymbol = { Fire: "◆", Forest: "✦", Wind: "➶", Mountain: "▲" };
   let teams = Store.hydrate(officialPlayers, seeds, Store.load(localStorage));
@@ -19,7 +19,7 @@
   const $ = (selector) => document.querySelector(selector);
   const nodes = {
     views: { players: $("#players-view"), teams: $("#teams-view"), tournaments: $("#tournaments-view"), championships: $("#championships-view"), ratings: $("#ratings-view"), custom: $("#custom-view") }, tabs: [...document.querySelectorAll(".view-tab")],
-    search: $("#search"), team: $("#team-filter"), position: $("#position-filter"), element: $("#element-filter"), reset: $("#reset-filters"), emptyReset: $("#empty-reset"),
+    search: $("#search"), game: $("#game-filter"), team: $("#team-filter"), position: $("#position-filter"), element: $("#element-filter"), reset: $("#reset-filters"), emptyReset: $("#empty-reset"),
     grid: $("#player-grid"), empty: $("#empty-state"), pagination: $("#pagination"), count: $("#result-count"), total: $("#total-count"), playerDetailDialog: $("#player-detail-dialog"), playerDetailContent: $("#player-detail-content"),
     teamGrid: $("#team-grid"), teamCount: $("#team-count"), teamSearch: $("#team-search"), createTeam: $("#create-team"), mergeTeams: $("#merge-teams"), exportTeams: $("#export-teams"), importTeams: $("#import-teams"),
     dialog: $("#team-dialog"), form: $("#team-form"), dialogTitle: $("#dialog-title"), dialogLogo: $("#dialog-logo"), teamId: $("#team-id"), teamName: $("#team-name"), logoUrl: $("#team-logo-url"), aliases: $("#team-aliases"), notes: $("#team-notes"), setLogo: $("#set-logo"), deleteTeam: $("#delete-team"),
@@ -79,6 +79,7 @@
     return players.filter((player) => {
       const searchable = `${player.id || ""} ${player.playerId || ""} ${player.name || ""} ${player.firstName || ""} ${player.lastName || ""} ${player.displayName || ""} ${player.nickname || ""} ${player.position || ""} ${player.element || ""} ${teamsForPlayer(player).map((team) => team.name).join(" ")}`.toLocaleLowerCase();
       return (!needle || searchable.includes(needle))
+        && (!state.game || player.game === state.game)
         && (!selected || teamsForPlayer(player).some((team) => team.id === selected.id))
         && (!state.position || player.position === state.position)
         && (!state.element || player.element === state.element);
@@ -746,12 +747,13 @@
 
   nodes.playerDetailDialog?.addEventListener("click", (event) => { if (event.target === nodes.playerDetailDialog) nodes.playerDetailDialog.close(); });
   nodes.tabs.forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
+  uniqueSorted(players.map((player) => player.game)).forEach((value) => nodes.game.add(new Option(value, value)));
   uniqueSorted(players.map((player) => player.position)).forEach((value) => nodes.position.add(new Option(value, value)));
   uniqueSorted(players.map((player) => player.element)).forEach((value) => nodes.element.add(new Option(value, value)));
   refreshTeamFilter(); nodes.total.textContent = players.length.toLocaleString();
   let timer; nodes.search.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => { state.search = nodes.search.value; state.page = 1; renderPlayers(); }, 100); });
-  [[nodes.team, "team"], [nodes.position, "position"], [nodes.element, "element"]].forEach(([select, key]) => select.addEventListener("change", () => { state[key] = select.value; state.page = 1; renderPlayers(); }));
-  const reset = () => { state.search = state.team = state.position = state.element = ""; state.page = 1; nodes.search.value = nodes.team.value = nodes.position.value = nodes.element.value = ""; renderPlayers(); };
+  [[nodes.game, "game"], [nodes.team, "team"], [nodes.position, "position"], [nodes.element, "element"]].forEach(([select, key]) => select.addEventListener("change", () => { state[key] = select.value; state.page = 1; renderPlayers(); }));
+  const reset = () => { state.search = state.game = state.team = state.position = state.element = ""; state.page = 1; nodes.search.value = nodes.game.value = nodes.team.value = nodes.position.value = nodes.element.value = ""; renderPlayers(); };
   nodes.reset.addEventListener("click", reset); nodes.emptyReset.addEventListener("click", reset);
   nodes.teamSearch.addEventListener("input", () => { state.teamSearch = nodes.teamSearch.value; renderTeams(); }); nodes.createTeam.addEventListener("click", createTeam); nodes.mergeTeams.addEventListener("click", prepareMerge); nodes.exportTeams.addEventListener("click", exportTeams); nodes.importTeams?.addEventListener("change", () => importTeams(nodes.importTeams.files?.[0]));
   nodes.setLogo.addEventListener("click", updateDialogLogo); nodes.logoUrl.addEventListener("change", updateDialogLogo); nodes.form.addEventListener("submit", (event) => { if (event.submitter?.value === "default") saveTeam(); }); nodes.deleteTeam.addEventListener("click", deleteTeam);
