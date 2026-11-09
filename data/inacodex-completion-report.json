@@ -1,0 +1,621 @@
+{
+  "existingPlayers": 2819,
+  "officialPlayers": 5460,
+  "newPlayerIds": 2656,
+  "totalPlayers": 5475,
+  "frontImagesMissing": [],
+  "portraitsMissing": [],
+  "applied": true,
+  "teamsBefore": 83,
+  "teamsAfter": 204,
+  "teamsCreated": 121,
+  "teamsUpdated": 139,
+  "membershipsAdded": 2845,
+  "newTeams": [
+    {
+      "id": "ai-academy",
+      "name": "AI Academy",
+      "roster": 18
+    },
+    {
+      "id": "almighty-faith",
+      "name": "Almighty Faith",
+      "roster": 17
+    },
+    {
+      "id": "ancient-darkness",
+      "name": "Ancient Darkness",
+      "roster": 12
+    },
+    {
+      "id": "art-club",
+      "name": "Art Club",
+      "roster": 11
+    },
+    {
+      "id": "back-alley-kickers",
+      "name": "Back Alley Kickers",
+      "roster": 18
+    },
+    {
+      "id": "badminton-club",
+      "name": "Badminton Club",
+      "roster": 16
+    },
+    {
+      "id": "baseball-club-team",
+      "name": "Baseball Club Team",
+      "roster": 16
+    },
+    {
+      "id": "basketball-club",
+      "name": "Basketball Club",
+      "roster": 15
+    },
+    {
+      "id": "big-bang",
+      "name": "Big Bang",
+      "roster": 11
+    },
+    {
+      "id": "black-templars",
+      "name": "Black Templars",
+      "roster": 17
+    },
+    {
+      "id": "bodybuilding-club",
+      "name": "Bodybuilding Club",
+      "roster": 14
+    },
+    {
+      "id": "cheerleading-squad",
+      "name": "Cheerleading Squad",
+      "roster": 2
+    },
+    {
+      "id": "children-of-the-night",
+      "name": "Children of the Night",
+      "roster": 17
+    },
+    {
+      "id": "choir-club",
+      "name": "Choir Club",
+      "roster": 13
+    },
+    {
+      "id": "chrono-storm",
+      "name": "Chrono Storm",
+      "roster": 37
+    },
+    {
+      "id": "cleanup-committee-member",
+      "name": "Cleanup Committee Member",
+      "roster": 2
+    },
+    {
+      "id": "computer-club",
+      "name": "Computer Club",
+      "roster": 13
+    },
+    {
+      "id": "crosswind-fauxshore",
+      "name": "Crosswind-Fauxshore",
+      "roster": 18
+    },
+    {
+      "id": "dance-club",
+      "name": "Dance Club",
+      "roster": 16
+    },
+    {
+      "id": "demon-s-horn",
+      "name": "Demon's Horn",
+      "roster": 16
+    },
+    {
+      "id": "destroyers",
+      "name": "Destroyers",
+      "roster": 36
+    },
+    {
+      "id": "dragon-link",
+      "name": "Dragon Link",
+      "roster": 17
+    },
+    {
+      "id": "drama-club",
+      "name": "Drama Club",
+      "roster": 14
+    },
+    {
+      "id": "earth-eleven",
+      "name": "Earth Eleven",
+      "roster": 22
+    },
+    {
+      "id": "eastwind",
+      "name": "Eastwind",
+      "roster": 18
+    },
+    {
+      "id": "el-dorado-01",
+      "name": "El Dorado 01",
+      "roster": 4
+    },
+    {
+      "id": "el-dorado-02",
+      "name": "El Dorado 02",
+      "roster": 10
+    },
+    {
+      "id": "el-dorado-03",
+      "name": "El Dorado 03",
+      "roster": 3
+    },
+    {
+      "id": "esports-club",
+      "name": "Esports Club",
+      "roster": 11
+    },
+    {
+      "id": "eternal-light",
+      "name": "Eternal Light",
+      "roster": 13
+    },
+    {
+      "id": "falam-medius",
+      "name": "Falam Medius",
+      "roster": 12
+    },
+    {
+      "id": "fertilia-eleven",
+      "name": "Fertilia Eleven",
+      "roster": 15
+    },
+    {
+      "id": "folk-dance-club",
+      "name": "Folk Dance Club",
+      "roster": 11
+    },
+    {
+      "id": "gahl",
+      "name": "Gahl",
+      "roster": 18
+    },
+    {
+      "id": "gatekeepers",
+      "name": "Gatekeepers",
+      "roster": 17
+    },
+    {
+      "id": "gihl",
+      "name": "Gihl",
+      "roster": 16
+    },
+    {
+      "id": "go-shogi-club",
+      "name": "Go & Shogi Club",
+      "roster": 11
+    },
+    {
+      "id": "golden-oldies",
+      "name": "Golden Oldies",
+      "roster": 12
+    },
+    {
+      "id": "handball-club",
+      "name": "Handball Club",
+      "roster": 11
+    },
+    {
+      "id": "idol-lovers-club",
+      "name": "Idol-Lovers Club",
+      "roster": 14
+    },
+    {
+      "id": "inazuma-legend-national",
+      "name": "Inazuma Legend National",
+      "roster": 11
+    },
+    {
+      "id": "ivy-selective",
+      "name": "Ivy Selective",
+      "roster": 16
+    },
+    {
+      "id": "ixar-fleet",
+      "name": "Ixar Fleet",
+      "roster": 11
+    },
+    {
+      "id": "japanese-resistance",
+      "name": "Japanese Resistance",
+      "roster": 13
+    },
+    {
+      "id": "judo-club",
+      "name": "Judo Club",
+      "roster": 11
+    },
+    {
+      "id": "karuta-club",
+      "name": "Karuta Club",
+      "roster": 16
+    },
+    {
+      "id": "kendo-club",
+      "name": "Kendo Club",
+      "roster": 11
+    },
+    {
+      "id": "lawcrest",
+      "name": "Lawcrest",
+      "roster": 18
+    },
+    {
+      "id": "lunar-howl",
+      "name": "Lunar Howl",
+      "roster": 12
+    },
+    {
+      "id": "lunar-sea",
+      "name": "Lunar Sea",
+      "roster": 17
+    },
+    {
+      "id": "magic-society",
+      "name": "Magic Society",
+      "roster": 11
+    },
+    {
+      "id": "magmavia-eleven",
+      "name": "Magmavia Eleven",
+      "roster": 13
+    },
+    {
+      "id": "manga-club",
+      "name": "Manga Club",
+      "roster": 11
+    },
+    {
+      "id": "marine-biology-club",
+      "name": "Marine Biology Club",
+      "roster": 13
+    },
+    {
+      "id": "martial-arts-club",
+      "name": "Martial Arts Club",
+      "roster": 14
+    },
+    {
+      "id": "metal-club",
+      "name": "Metal Club",
+      "roster": 15
+    },
+    {
+      "id": "milky-way-charter",
+      "name": "Milky Way Charter",
+      "roster": 17
+    },
+    {
+      "id": "mirage",
+      "name": "Mirage",
+      "roster": 17
+    },
+    {
+      "id": "modern-music-club",
+      "name": "Modern Music Club",
+      "roster": 12
+    },
+    {
+      "id": "mount-olympus",
+      "name": "Mount Olympus",
+      "roster": 18
+    },
+    {
+      "id": "muay-tigers",
+      "name": "Muay Tigers",
+      "roster": 12
+    },
+    {
+      "id": "naiadi-eleven",
+      "name": "Naiadi Eleven",
+      "roster": 13
+    },
+    {
+      "id": "newspaper-club",
+      "name": "Newspaper Club",
+      "roster": 12
+    },
+    {
+      "id": "noble-insight",
+      "name": "Noble Insight",
+      "roster": 18
+    },
+    {
+      "id": "northbright",
+      "name": "Northbright",
+      "roster": 18
+    },
+    {
+      "id": "northern-fang",
+      "name": "Northern Fang",
+      "roster": 11
+    },
+    {
+      "id": "nosfanatica",
+      "name": "Nosfanatica",
+      "roster": 12
+    },
+    {
+      "id": "occult-society",
+      "name": "Occult Society",
+      "roster": 11
+    },
+    {
+      "id": "orchid-academy",
+      "name": "Orchid Academy",
+      "roster": 18
+    },
+    {
+      "id": "perfect-cascade",
+      "name": "Perfect Cascade",
+      "roster": 33
+    },
+    {
+      "id": "pirates-cove",
+      "name": "Pirates Cove",
+      "roster": 17
+    },
+    {
+      "id": "platos",
+      "name": "Platos",
+      "roster": 35
+    },
+    {
+      "id": "prodigy-grammar",
+      "name": "Prodigy Grammar",
+      "roster": 17
+    },
+    {
+      "id": "protocol-omega",
+      "name": "Protocol Omega",
+      "roster": 16
+    },
+    {
+      "id": "protocol-omega-2-0",
+      "name": "Protocol Omega 2.0",
+      "roster": 17
+    },
+    {
+      "id": "protocol-omega-3-0",
+      "name": "Protocol Omega 3.0",
+      "roster": 22
+    },
+    {
+      "id": "queens",
+      "name": "Queens",
+      "roster": 1
+    },
+    {
+      "id": "quiz-society",
+      "name": "Quiz Society",
+      "roster": 13
+    },
+    {
+      "id": "ragnah",
+      "name": "Ragnah",
+      "roster": 18
+    },
+    {
+      "id": "raimon-first-squad",
+      "name": "Raimon First Squad",
+      "roster": 42
+    },
+    {
+      "id": "raimon-second-squad",
+      "name": "Raimon Second Squad",
+      "roster": 11
+    },
+    {
+      "id": "revolutionaries",
+      "name": "Revolutionaries",
+      "roster": 11
+    },
+    {
+      "id": "rugby-club",
+      "name": "Rugby Club",
+      "roster": 14
+    },
+    {
+      "id": "school-committee",
+      "name": "School Committee",
+      "roster": 5
+    },
+    {
+      "id": "seagull-fc",
+      "name": "Seagull FC",
+      "roster": 20
+    },
+    {
+      "id": "shamshir",
+      "name": "Shamshir",
+      "roster": 12
+    },
+    {
+      "id": "silica-eleven",
+      "name": "Silica Eleven",
+      "roster": 13
+    },
+    {
+      "id": "south-cirrus-shopkeepers",
+      "name": "South Cirrus Shopkeepers",
+      "roster": 18
+    },
+    {
+      "id": "southern-claw",
+      "name": "Southern Claw",
+      "roster": 11
+    },
+    {
+      "id": "space-laboratory",
+      "name": "Space Laboratory",
+      "roster": 11
+    },
+    {
+      "id": "space-rankers",
+      "name": "Space Rankers",
+      "roster": 16
+    },
+    {
+      "id": "storm-wolves",
+      "name": "Storm Wolves",
+      "roster": 12
+    },
+    {
+      "id": "stormridge",
+      "name": "Stormridge",
+      "roster": 15
+    },
+    {
+      "id": "street-howlers",
+      "name": "Street Howlers",
+      "roster": 2
+    },
+    {
+      "id": "sumo-club",
+      "name": "Sumo Club",
+      "roster": 14
+    },
+    {
+      "id": "supernova",
+      "name": "Supernova",
+      "roster": 11
+    },
+    {
+      "id": "surf-club",
+      "name": "Surf Club",
+      "roster": 14
+    },
+    {
+      "id": "swimming-club",
+      "name": "Swimming Club",
+      "roster": 14
+    },
+    {
+      "id": "table-tennis-club",
+      "name": "Table Tennis Club",
+      "roster": 13
+    },
+    {
+      "id": "tea-ceremony-club",
+      "name": "Tea Ceremony Club",
+      "roster": 11
+    },
+    {
+      "id": "team-zero",
+      "name": "Team Zero",
+      "roster": 18
+    },
+    {
+      "id": "tennis-club",
+      "name": "Tennis Club",
+      "roster": 15
+    },
+    {
+      "id": "the-aquatic-wings",
+      "name": "The Aquatic Wings",
+      "roster": 1
+    },
+    {
+      "id": "the-crimson-hounds",
+      "name": "The Crimson Hounds",
+      "roster": 1
+    },
+    {
+      "id": "the-despairadoes",
+      "name": "The Despairadoes",
+      "roster": 14
+    },
+    {
+      "id": "the-golden-bears",
+      "name": "The Golden Bears",
+      "roster": 1
+    },
+    {
+      "id": "the-night-vipers",
+      "name": "The Night Vipers",
+      "roster": 1
+    },
+    {
+      "id": "the-sherwinds",
+      "name": "The Sherwinds",
+      "roster": 20
+    },
+    {
+      "id": "the-snow-weasels",
+      "name": "The Snow Weasels",
+      "roster": 1
+    },
+    {
+      "id": "the-terracotta-army",
+      "name": "The Terracotta Army",
+      "roster": 11
+    },
+    {
+      "id": "track-and-field-club",
+      "name": "Track and Field Club",
+      "roster": 14
+    },
+    {
+      "id": "twinford",
+      "name": "Twinford",
+      "roster": 18
+    },
+    {
+      "id": "universal",
+      "name": "Universal",
+      "roster": 18
+    },
+    {
+      "id": "volleyball-club",
+      "name": "Volleyball Club",
+      "roster": 12
+    },
+    {
+      "id": "water-polo-club",
+      "name": "Water Polo Club",
+      "roster": 14
+    },
+    {
+      "id": "west-manor",
+      "name": "West Manor",
+      "roster": 18
+    },
+    {
+      "id": "white-deer",
+      "name": "White Deer",
+      "roster": 17
+    },
+    {
+      "id": "wind-orchestra-club",
+      "name": "Wind Orchestra Club",
+      "roster": 16
+    },
+    {
+      "id": "zan",
+      "name": "Zan",
+      "roster": 18
+    },
+    {
+      "id": "zanark-s-domain",
+      "name": "Zanark's Domain",
+      "roster": 18
+    },
+    {
+      "id": "zanark-s-outsiders",
+      "name": "Zanark's Outsiders",
+      "roster": 17
+    }
+  ]
+}
