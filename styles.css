@@ -80,7 +80,7 @@ button, select { cursor: pointer; }
   position: relative;
   z-index: 3;
   display: grid;
-  grid-template-columns: 2.2fr 1.4fr 1fr 1fr auto;
+  grid-template-columns: minmax(190px, 2fr) minmax(150px, 1.35fr) minmax(140px, 1.25fr) minmax(105px, .8fr) minmax(110px, .85fr) auto;
   gap: 14px;
   align-items: end;
   margin-top: -45px;
@@ -142,7 +142,7 @@ footer { padding: 24px 0; color: #a9b9c8; background: var(--ink); font-size: .7r
 
 @media (max-width: 980px) {
   .hero__stats { display: none; }
-  .filters { grid-template-columns: 2fr 1fr 1fr; }
+  .filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .filters label:nth-child(2) { grid-column: span 2; }
   .player-grid { grid-template-columns: repeat(3, 1fr); }
 }
