@@ -30,7 +30,10 @@ def main():
                 if "/chara_param/" in target:
                     from urllib.parse import urljoin
                     details.append(urljoin(page.url, target))
-            print("Detail links on page:", len(details), flush=True)
+            print("Detail links on page:", len(details), "first", details[0] if details else None, flush=True)
+            first_row = next((r for r in root.descendants("tr") if "1" in r.text() and "Mark Evans" in r.text()), None)
+            if first_row:
+                print("Mark listing anchors:", [a.attrs.get("href") for a in first_row.descendants("a")], flush=True)
             if not details:
                 return 3
             page.goto(details[0], wait_until="domcontentloaded", timeout=35000)
@@ -46,6 +49,9 @@ def main():
                 return 4
             page.goto(viewers[0], wait_until="domcontentloaded", timeout=35000)
             page.wait_for_timeout(800)
+            direct = page.context.request.get(page.url, timeout=20000)
+            raw_viewer = direct.text()
+            print("Raw viewer HTTP:", direct.status, "contains fullbody", "_r0_fullbody.webp" in raw_viewer, flush=True)
             try:
                 page.get_by_text("Full", exact=True).first.click(timeout=2000)
                 page.wait_for_timeout(800)
