@@ -29,7 +29,7 @@ PAGE_SIZE = 50
 def name_key(value: str) -> str:
     value = unicodedata.normalize("NFKC", str(value or "")).casefold()
     value = value.replace("’", "'").replace("‘", "'")
-    value = re.sub(r"\\s+", " ", value)
+    value = re.sub(r"\s+", " ", value)
     return value.strip()
 
 
