@@ -34,6 +34,19 @@ def main():
                 try:
                     response=page.goto(url, wait_until="domcontentloaded", timeout=30000)
                     page.wait_for_function("() => Number((document.querySelector('#total-count')?.textContent||'0').replace(/[^0-9]/g,'')) >= 5000 && document.querySelectorAll('#player-grid .player-card').length > 0",timeout=50000)
+                    options=page.locator("#game-filter option").all_text_contents()
+                    if len(options)<2 or options[0]!="All games":
+                        raise AssertionError("Game filter missing or empty: "+str(options[:5]))
+                    selected=page.locator("#game-filter").locator("option").nth(1).get_attribute("value")
+                    page.locator("#game-filter").select_option(selected)
+                    matching_count=page.locator("#result-count").inner_text()
+                    visible=page.locator("#player-grid .player-card").count()
+                    if not visible or visible>48 or "5,475" in matching_count:
+                        raise AssertionError("Game filter didn't narrow matches: "+matching_count)
+                    page.locator("#reset-filters").click()
+                    if page.locator("#game-filter").input_value()!="":
+                        raise AssertionError("Reset didn't clear game filter")
+                    print("GAME_FILTER",json.dumps({"mode":mode,"options":len(options),"selected":selected,"matching":matching_count}),flush=True)
                     page.locator('[data-view="teams"]').click()
                     team_count=page.locator("#team-count").inner_text(timeout=10000)
                     teams_rendered=page.locator("#team-grid").locator("*").count()
