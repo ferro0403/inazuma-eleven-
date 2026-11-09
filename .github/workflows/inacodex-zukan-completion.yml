@@ -1,0 +1,54 @@
+name: InaCodex full player and team completion
+on:
+  push:
+    branches: [feat/inacodex-zukan-import-20261109]
+    paths:
+      - scripts/complete_inacodex.py
+      - .github/workflows/inacodex-zukan-completion.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: inacodex-20261109
+  cancel-in-progress: false
+jobs:
+  complete:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Chromium
+        run: |
+          python -m pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Parser, import syntax and baseline tests
+        run: |
+          python -m py_compile scripts/complete_inacodex.py
+          python -m unittest discover -s tests -p 'test_extract_players.py' -v
+      - name: Import all missing players and automatic team rosters
+        run: python scripts/complete_inacodex.py --apply
+      - name: Validate and commit both catalog files atomically
+        run: |
+          node --check data/players.js
+          node --check data/teams.js
+          git diff --check
+          git add data/players.js data/teams.js data/inacodex-completion-report.json
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --cached --quiet; then
+            git commit -m 'data: add verified missing Zukan players and complete team rosters'
+            git push origin HEAD:feat/inacodex-zukan-import-20261109
+          fi
+      - name: Keep import report and cache for diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inacodex-import-run
+          path: |
+            data/inacodex-completion-report.json
+            .inacodex-front-cache.json
+          if-no-files-found: ignore
