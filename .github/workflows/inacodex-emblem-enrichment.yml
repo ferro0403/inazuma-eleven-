@@ -4,6 +4,8 @@ on:
     branches: [feat/inacodex-zukan-import-20261109]
     paths:
       - .github/workflows/inacodex-emblem-enrichment.yml
+      - scripts/import_zukan_emblems.py
+      - tests/test_import_zukan_emblems.py
   workflow_dispatch:
 permissions:
   contents: write
