@@ -9,6 +9,15 @@ This project contains:
 
 The repository includes three sample records so the browser works immediately after download. Portraits are displayed directly from each record's `imageUrl`; image files are never downloaded into this project.
 
+## Aprire InaCodex su Windows (senza installare l'estrattore)
+
+1. Scarica il file ZIP del branch aggiornato e usa **Estrai tutto**. Non aprire `index.html` dentro l'anteprima ZIP.
+2. Dentro la cartella estratta fai doppio clic su **`index.html`**: in un normale browser Chromium l'interfaccia si avvia anche in modalita' `file://` (test automatico superato).
+3. Se il browser blocca i file locali, usa **`APRI_INACODEX.bat`** (richiede Python nel PATH): aprira' `http://127.0.0.1:8765/index.html`.
+4. I rating, le squadre modificate e i giocatori personalizzati possono risiedere in **localStorage** o in Firestore. `file://`, `http://localhost:8000` e `http://127.0.0.1:8765` sono origini diverse: **fai prima un export dalla vecchia versione** se devi trasferire dati locali. Non cancellare la versione precedente.
+
+I filtri del player browser includono anche **Game** e usano il campo ufficiale `game` (nessuna importazione extra necessaria).
+
 ## Windows setup (step by step)
 
 ### 1. Install Python
