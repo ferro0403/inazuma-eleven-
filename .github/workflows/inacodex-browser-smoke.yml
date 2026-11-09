@@ -1,0 +1,28 @@
+name: InaCodex index browser smoke test
+on:
+  push:
+    branches: [feat/inacodex-zukan-import-20261109]
+    paths:
+      - scripts/browser_smoke_inacodex.py
+      - .github/workflows/inacodex-browser-smoke.yml
+      - app.js
+      - player-ratings.js
+      - index.html
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Chromium
+        run: |
+          python -m pip install playwright==1.52.0
+          python -m playwright install --with-deps chromium
+      - name: Open extracted index.html under file:// and localhost
+        run: python scripts/browser_smoke_inacodex.py
