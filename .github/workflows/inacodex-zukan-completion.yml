@@ -28,6 +28,7 @@ jobs:
         run: |
           python -m py_compile scripts/complete_inacodex.py
           python -m unittest discover -s tests -p 'test_extract_players.py' -v
+          python -m unittest discover -s tests -p 'test_complete_inacodex.py' -v
       - name: Import all missing players and automatic team rosters
         run: python scripts/complete_inacodex.py --apply
       - name: Validate and commit both catalog files atomically
