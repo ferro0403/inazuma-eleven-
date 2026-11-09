@@ -1,0 +1,50 @@
+name: InaCodex verified official emblem enrichment
+on:
+  push:
+    branches: [feat/inacodex-zukan-import-20261109]
+    paths:
+      - .github/workflows/inacodex-emblem-enrichment.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: inacodex-official-emblem-enrichment
+  cancel-in-progress: false
+jobs:
+  enrich:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate matching and preservation tests
+        run: |
+          python -m unittest discover -s tests -p test_import_zukan_emblems.py -v
+          python -m unittest discover -s tests -p test_complete_inacodex.py -v
+      - name: Install Chromium for official Zukan
+        run: |
+          python -m pip install playwright==1.52.0
+          python -m playwright install --with-deps chromium
+      - name: Assign only exact, unique official emblems to empty team logos
+        run: python scripts/import_zukan_emblems.py --apply
+      - name: Validate and push only team logos and report to review branch
+        run: |
+          node --check data/teams.js
+          git diff --check
+          git add data/teams.js data/inacodex-emblems-report.json
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --cached --quiet; then
+            git commit -m 'data: fill only exact-match missing official Zukan team emblems'
+            git push origin HEAD:feat/inacodex-zukan-import-20261109
+          fi
+      - name: Upload report for verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inacodex-official-emblem-report
+          path: data/inacodex-emblems-report.json
+          if-no-files-found: ignore
