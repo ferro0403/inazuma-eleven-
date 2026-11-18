@@ -207,7 +207,11 @@ def main():
             finally:
                 browser.close()
     if not_found:
-        raise RuntimeError(f"Unresolved official ID(s) after direct attribute lookup: {not_found[:3]}")
+        for missing in not_found:
+            incomplete.append({"id":missing["id"],"name":missing["name"],
+                               "stats":[None]*7,
+                               "reason":"official_character_row_has_no_unique_attribute_link"})
+        print("OFFICIAL_ATTRIBUTE_UNAVAILABLE",json.dumps(not_found,ensure_ascii=False),flush=True)
     if len(by_id)+len(incomplete)!=5460:
         raise RuntimeError("Unreconciled public player IDs")
 
