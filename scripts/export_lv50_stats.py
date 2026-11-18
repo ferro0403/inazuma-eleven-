@@ -67,7 +67,7 @@ def extract_page(page, kind: str, number: int) -> list[dict]:
                      const p=[...new Set([...tr.querySelectorAll('a[href*="/chara_param/?q="]')].map(a=>a.href))];
                      result.push({id:Number(id),viewer:u.length===1?u[0]:'',viewers:u.length,
                                   param:p.length===1?p[0]:'',params:p.length,
-                                  name:cells[cols.indexOf('name')]?.innerText.trim().slice(0,150)||''});
+                                  name:tr.querySelector('.nameBox img[alt]')?.alt?.trim() || cells[cols.indexOf('name')]?.innerText.trim().slice(0,150)||''});
                    }
                    return {rows:result};
                 }""")
