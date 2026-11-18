@@ -64,7 +64,9 @@ def extract_page(page, kind: str, number: int) -> list[dict]:
                      if(!/^\\d+$/.test(id))continue;
                      const v=[...tr.querySelectorAll('a[href*="/chara_model_view/"]')].map(a=>a.href);
                      const u=[...new Set(v)];
+                     const p=[...new Set([...tr.querySelectorAll('a[href*="/chara_param/?q="]')].map(a=>a.href))];
                      result.push({id:Number(id),viewer:u.length===1?u[0]:'',viewers:u.length,
+                                  param:p.length===1?p[0]:'',params:p.length,
                                   name:cells[cols.indexOf('name')]?.innerText.trim().slice(0,150)||''});
                    }
                    return {rows:result};
@@ -121,7 +123,7 @@ def main():
                         raise RuntimeError(f"Missing/ambiguous viewer link for public ID {pid}: {row!r}")
                     if pid in index and index[pid]["key"]!=key:
                         raise RuntimeError(f"ID {pid} changed viewer")
-                    index[pid]={"key":key,"name":row["name"]}
+                    index[pid]={"key":key,"name":row["name"],"param":row["param"]}
                 if n==1 or n%10==0 or n==110:
                     print(f"OFFICIAL_ID_LIST {n}/110 {len(index)} IDs",flush=True)
             if len(index) != 5460:
@@ -154,8 +156,58 @@ def main():
             by_id[str(pid)]=numbers
         else:
             incomplete.append({"id":pid,"name":info["name"],"stats":numbers})
+    # Exception handling: an official ID may be missing from global Attribute Search
+    # despite having its own one-character Attribute link in the Character list.
+    # Verify THAT exact same-row URL and never match by name alone.
     if not_found:
-        raise RuntimeError(f"Missing viewer join for {len(not_found)} records, first {not_found[:3]}")
+        with sync_playwright() as p:
+            browser=p.chromium.launch(headless=True)
+            page=browser.new_page(locale="en-US")
+            try:
+                still_missing=[]
+                for missing in not_found:
+                    pid=missing["id"]
+                    direct=index[pid]["param"]
+                    uri=urlparse(direct)
+                    if (uri.hostname!="zukan.inazuma.jp"
+                        or "/chara_param/" not in uri.path or not parse_qs(uri.query).get("q")):
+                        still_missing.append(missing)
+                        continue
+                    page.goto(direct,wait_until="domcontentloaded",timeout=TIMEOUT_MS)
+                    page.locator("ul.param").first.wait_for(timeout=TIMEOUT_MS)
+                    result=page.evaluate("""() => {
+                        const els=[...document.querySelectorAll('ul.param')];
+                        if(els.length!==1)return {count:els.length};
+                        const keys=['kick','control','technique','pressure','physical','agility','intelligence'];
+                        const stats={};
+                        for(const dl of els[0].querySelectorAll('dl')){
+                            const key=(dl.querySelector('dt')?.textContent||'').trim().toLowerCase();
+                            const value=(dl.querySelector('table td')?.textContent||'').trim();
+                            if(keys.includes(key)) stats[key]=/^\\d+$/.test(value)?Number(value):null;
+                        }
+                        let parent=els[0],label='';
+                        for(let i=0;i<8&&parent;i++,parent=parent.parentElement) {
+                            if(parent.querySelectorAll('ul.param').length===1){
+                                const portrait=parent.querySelector('img[alt]');
+                                if(portrait&&portrait.alt.trim()){label=portrait.alt.trim();break;}
+                            }
+                        }
+                        return {count:els.length,stats:keys.map(k=>stats[k]??null),name:label};
+                    }""")
+                    print("DIRECT_ATTRIBUTE_RECHECK",json.dumps({"id":pid,**result},ensure_ascii=False),flush=True)
+                    matches=(result.get("name","").strip().casefold()==index[pid]["name"].strip().casefold())
+                    values=result.get("stats",[])
+                    if result.get("count")==1 and matches and len(values)==7 and all(isinstance(v,int) and v>=0 for v in values):
+                        by_id[str(pid)]=values
+                    elif result.get("count")==1 and matches and len(values)==7:
+                        incomplete.append({"id":pid,"name":index[pid]["name"],"stats":values})
+                    else:
+                        still_missing.append(missing)
+                not_found=still_missing
+            finally:
+                browser.close()
+    if not_found:
+        raise RuntimeError(f"Unresolved official ID(s) after direct attribute lookup: {not_found[:3]}")
     if len(by_id)+len(incomplete)!=5460:
         raise RuntimeError("Unreconciled public player IDs")
 
