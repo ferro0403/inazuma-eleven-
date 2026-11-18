@@ -31,12 +31,18 @@ with sync_playwright() as p:
                     text:(el.innerText||'').slice(0,900),
                     html:el.outerHTML.slice(0,7200),
                     links:[...el.querySelectorAll('a')].map(a=>a.getAttribute('href')).slice(0,6)}));
+                const chain=[...document.querySelectorAll('ul.param')].slice(0,2).map(ul=>{
+                    let p=ul;const a=[];
+                    for(let i=0;i<7&&p;i++,p=p.parentElement){
+                      a.push({tag:p.tagName,cls:p.className,id:p.id,links:[...p.querySelectorAll('a[href*="chara_model_view"]')].slice(0,3).map(x=>x.href),
+                        characterNum:p.getAttribute("data-id"),childCount:p.children.length,txt:(p.innerText||'').slice(0,90)});
+                    }return a;});
                 const groups={};
                 for(const el of els)groups[el.tagName+'.'+el.className]=(groups[el.tagName+'.'+el.className]||0)+1;
                 const allLinks=[...document.querySelectorAll('a[href*="chara_param"], a[href*="chara_model_view"]')].slice(0,6)
                   .map(a=>({href:a.getAttribute('href'),parent:a.parentElement?.parentElement?.outerHTML.slice(0,700)}));
                 return {title:document.title,loc:location.href,bodyText:root.innerText.slice(0,350),
-                    candidateCount:els.length,groups,candidates,allLinks,
+                    candidateCount:els.length,groups,chain,candidates:candidates.slice(0,1),allLinks:allLinks.slice(0,2),
                     items:document.querySelectorAll('ul.itemListBox >li').length,
                     resultsCount:(root.innerText.match(/Search Results:[^\\n]*\\n[^\\n]*/)||[])[0],
                     pages:[...document.querySelectorAll('a[href*="page="]')].slice(0,10).map(a=>a.href)};
