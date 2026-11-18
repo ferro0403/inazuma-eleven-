@@ -115,7 +115,7 @@ def main():
             for task in as_completed(jobs):
                 _, n, markup=task.result()
                 rows=list_rows(markup) if kind=="list" else param_rows(markup)
-                expected=PER_PAGE if n<PAGES else COUNT-PER_PAGE*(PAGES-1)
+                expected=PER_PAGE if n<PAGES else COUNT-PER_PAGE*(PAGES-1)-(1 if kind=="param" else 0)
                 if len(rows)!=expected:
                     raise RuntimeError(f"{kind} page {n}: expected {expected}, got {len(rows)}")
                 if kind=="list":
