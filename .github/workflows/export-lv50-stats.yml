@@ -1,0 +1,42 @@
+name: Scratch Export Official Zukan Lv50 Stats
+on:
+  push:
+    branches: [tmp/zukan-attributes-only-20261118]
+    paths:
+      - scripts/export_lv50_stats.py
+      - .github/workflows/export-lv50-stats.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  export-lv50:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install headless Chromium
+        run: |
+          python -m pip install playwright==1.52.0
+          python -m playwright install --with-deps chromium
+      - name: Read official Lv50 statistics by public player ID
+        run: python scripts/export_lv50_stats.py
+      - name: Retrieve verified full player and team catalogs as data-only inputs
+        run: |
+          set -euo pipefail
+          mkdir -p export/data
+          BASE=https://raw.githubusercontent.com/ferro0403/inazuma-eleven-/e6f5b4c1552258012abae850ba2449073dc8007e/data
+          curl -fL --retry 3 --connect-timeout 15 "$BASE/players.js" -o export/data/players.js
+          curl -fL --retry 3 --connect-timeout 15 "$BASE/teams.js" -o export/data/teams.js
+          test -s export/data/players.js
+          test -s export/data/teams.js
+      - name: Deliver extracted data only, no repository commits
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-lv50-export
+          path: export/
+          if-no-files-found: warn
+          retention-days: 7
