@@ -9,7 +9,7 @@ for url in ('https://zukan.inazuma.jp/en/chara_param/?page=1&per_page=50',
         with urlopen(req,timeout=25) as response:
             t=response.read().decode('utf-8','replace')
             print('HTTP_PROBE',url,'status',response.status,'bytes',len(t),
-              'param_ul',len(re.findall(r'<ul[^>]+class=["\\']param["\\']',t)),
+              'param_ul',t.count('class="param"'),
               'model_view_links',t.count('/chara_model_view/?q='),
               'mark',('Mark Evans' in t),'kick',('Kick' in t),'no',('No.' in t),flush=True)
     except Exception as ex:
